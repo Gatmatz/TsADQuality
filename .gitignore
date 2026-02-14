@@ -1,0 +1,18 @@
+# Virtual Environment
+venv/
+.ipynb_checkpoints/
+__pycache__/
+*.pyc
+
+# Data Files (Too large for GitHub)
+TSB-UAD/data/
+TSB-UAD/TSB-UAD-Public/
+*.out
+*.csv
+*.zip
+
+# VS Code
+.vscode/
+
+# Project specific
+test_import.py
