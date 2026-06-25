@@ -1,18 +1,52 @@
-# Virtual Environment
-venv/
-.ipynb_checkpoints/
+# Thesis Timeseries Gitignore
+
+# Ignore Python cache files
 __pycache__/
 *.pyc
+.ipynb_checkpoints/
 
-# Data Files (Too large for GitHub)
-TSB-UAD/data/
-TSB-UAD/TSB-UAD-Public/
-*.out
-*.csv
-*.zip
+# Ignore outputs (Generated corruptions, metrics, figures)
+outputs/metrics/*
+outputs/data_corrupted/*
+outputs/figures/*
 
-# VS Code
+# Ignore raw data to prevent giant commits
+data/raw/*
+TSB-UAD/data/*
+!TSB-UAD/data/.keep
+
+# Exceptions: we might want to keep the subset lists
+!data/subsets/*
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# Python virtual environment
+venv/
+.venv/
+
+# Thesis drafts (Word / PDF) — kept local, not pushed
+*.docx
+*.pdf
+
+# Vendored copy of Time-Series-Library (has its own upstream repo)
+Time-Series-Library/
+
+# Editor / tooling
 .vscode/
+.claude/
 
-# Project specific
-test_import.py
+# Temp / scratch dirs
+.tmp.driveupload/
+.tmp_*/
+tmp*/
+soffice_convert_*/
+soffice_profile_*/
+
+# Generated document-render output (PDF/image render checks)
+render_check_*/
+rendered_*/
+
+# Compiled binaries
+*.exe
