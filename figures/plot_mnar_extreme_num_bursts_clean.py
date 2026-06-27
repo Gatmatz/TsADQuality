@@ -5,7 +5,7 @@ import os
 import pandas as pd
 import matplotlib.pyplot as plt
 
-PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SUMMARY_CSV  = os.path.join(PROJECT_ROOT, "results", "experiments", "missing_mnar_burst", "summary.csv")
 
 MODELS = ["IForest", "LOF", "MP", "AE"]
@@ -74,7 +74,7 @@ fig.suptitle("Επίδραση num_bursts στο MNAR_extreme burst @ 10% missin
 axes[2].legend(loc="lower right", frameon=True)
 
 fig.tight_layout()
-out_path = os.path.join(PROJECT_ROOT, "plot_mnar_extreme_num_bursts_clean.png")
+out_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "plot_mnar_extreme_num_bursts_clean.png")
 fig.savefig(out_path, bbox_inches="tight", facecolor="white")
 plt.close(fig)
 print(f"Saved: {out_path}")

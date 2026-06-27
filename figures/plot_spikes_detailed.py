@@ -63,5 +63,5 @@ handles, labels = axes[0].get_legend_handles_labels()
 fig.legend(handles, labels, loc='upper center', bbox_to_anchor=(0.5, 0.05), ncol=4)
 
 plt.tight_layout(rect=[0, 0.08, 1, 1])
-plt.savefig('spikes_detailed_multipliers.png', dpi=300, bbox_inches='tight')
+plt.savefig(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'spikes_detailed_multipliers.png'), dpi=300, bbox_inches='tight')
 print("Detailed plot saved as spikes_detailed_multipliers.png")

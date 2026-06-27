@@ -7,7 +7,7 @@ import os
 import pandas as pd
 import matplotlib.pyplot as plt
 
-PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SUMMARY_CSV    = os.path.join(PROJECT_ROOT, "results", "experiments", "white_noise_snr", "summary.csv")
 CHECKPOINT_CSV = os.path.join(PROJECT_ROOT, "results", "experiments", "white_noise_snr", "checkpoint.csv")
 BASELINE_CSV   = os.path.join(PROJECT_ROOT, "results", "tables", "baseline_final_subset.csv")
@@ -80,7 +80,7 @@ ax.set_title("Performance Degradation under White Noise", fontweight="bold")
 ax.legend(frameon=True)
 
 fig.tight_layout()
-out_path = os.path.join(PROJECT_ROOT, "plot_snr_degradation_141.png")
+out_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "plot_snr_degradation_141.png")
 fig.savefig(out_path, bbox_inches="tight", facecolor="white")
 plt.close(fig)
 print(f"Saved: {out_path}")

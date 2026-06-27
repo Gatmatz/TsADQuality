@@ -9,7 +9,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-ROOT = os.path.abspath(".")
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MODELS = [("IForest", "IForest"), ("LOF", "LOF"), ("MP", "Matrix Profile"), ("AE", "Autoencoder")]
 ALIAS = {"Autoencoder": "AE", "Matrix Profile": "MP", "ME": "MP"}
 nsw = [1, 3, 5, 10, 20]
@@ -59,7 +59,7 @@ fig.suptitle("Segment Swap: AUC-PR drop from clean baseline (%)", fontsize=13, f
 fig.subplots_adjust(left=0.07, right=0.88, bottom=0.08, top=0.91, wspace=0.18, hspace=0.32)
 cax = fig.add_axes([0.90, 0.20, 0.018, 0.58])
 cb = fig.colorbar(ims[0], cax=cax); cb.set_label("AUC-PR drop (%)")
-out = os.path.join(ROOT, "plot_swap_segment_aucpr_drop_141.png")
+out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "plot_swap_segment_aucpr_drop_141.png")
 fig.savefig(out, bbox_inches="tight", facecolor="white"); plt.close(fig)
 print("baseline files:", bl[bl['file'].isin(exp)]['file'].nunique())
 print("IForest matrix:"); print(np.round(mats["IForest"]).astype(int))

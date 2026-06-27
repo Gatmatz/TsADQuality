@@ -9,7 +9,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 
-ROOT = os.path.abspath(".")
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SUMMARY = os.path.join(ROOT, "results", "experiments", "missing_mnar", "summary.csv")
 CHECKPOINT = os.path.join(ROOT, "results", "experiments", "missing_mnar", "checkpoint.csv")
 BASELINE = os.path.join(ROOT, "results", "tables", "baseline_final_subset.csv")
@@ -56,6 +56,6 @@ h, l = axes[2].get_legend_handles_labels()
 h.append(Line2D([0], [0], color="#222222", linestyle=(0, (5, 3)), linewidth=2.6, alpha=0.95)); l.append("clean baseline")
 axes[2].legend(handles=h, labels=l, loc="lower left", frameon=True)
 fig.tight_layout()
-out = os.path.join(ROOT, "plot_mnar_extreme_point_141.png")
+out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "plot_mnar_extreme_point_141.png")
 fig.savefig(out, bbox_inches="tight", facecolor="white"); plt.close(fig)
 print("Saved:", out)

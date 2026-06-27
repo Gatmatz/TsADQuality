@@ -1,15 +1,16 @@
 """
-Recreates the 'MNAR_extreme Burst Missing — επίδραση ανά μετρική' plot
-using ONLY the 139 files present in the missing_mnar_burst experiment.
+Recreates the 'MCAR Point Missing — επίδραση ανά μετρική' plot
+using ONLY the 141 files present in the missing_mnar experiment,
+with dashed baseline lines.
 """
 import os
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 
-PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
-SUMMARY_CSV  = os.path.join(PROJECT_ROOT, "results", "experiments", "missing_mnar_burst", "summary.csv")
-CHECKPOINT_CSV = os.path.join(PROJECT_ROOT, "results", "experiments", "missing_mnar_burst", "checkpoint.csv")
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SUMMARY_CSV  = os.path.join(PROJECT_ROOT, "results", "experiments", "missing_mnar", "summary.csv")
+CHECKPOINT_CSV = os.path.join(PROJECT_ROOT, "results", "experiments", "missing_mnar", "checkpoint.csv")
 BASELINE_CSV = os.path.join(PROJECT_ROOT, "results", "tables", "baseline_final_subset.csv")
 
 MODELS = ["IForest", "LOF", "MP", "AE"]
@@ -22,19 +23,15 @@ COLORS  = {
 }
 MARKERS = {"IForest": "o", "LOF": "s", "MP": "^", "AE": "D"}
 
-DISPLAY = {"IForest": "IForest", "LOF": "LOF", "MP": "MP", "AE": "AE"}
-
 METRICS = [
     ("mean_AUC_ROC", "AUC_ROC", "AUC-ROC", "AUC-ROC"),
     ("mean_AUC_PR",  "AUC_PR",  "AUC-PR",  "AUC-PR"),
     ("mean_Recall",  "Recall",  "Recall",  "Recall"),
 ]
 
+# ── Load data ────────────────────────────────────────────────────────────────
 summary = pd.read_csv(SUMMARY_CSV)
-summary = summary[summary["mechanism"] == "mnar_extreme_burst"]
-summary = summary.groupby(["fraction", "model"], as_index=False)[
-    ["mean_AUC_ROC", "mean_AUC_PR", "mean_Recall"]
-].mean()
+summary = summary[summary["mechanism"] == "mcar"]
 
 baseline = pd.read_csv(BASELINE_CSV)
 baseline["model"] = baseline["model"].replace({"Autoencoder": "AE", "Matrix Profile": "MP", "ME": "MP"})
@@ -42,13 +39,14 @@ baseline["model"] = baseline["model"].replace({"Autoencoder": "AE", "Matrix Prof
 checkpoint = pd.read_csv(CHECKPOINT_CSV)
 experiment_files = set(checkpoint[checkpoint["error"].isna()]["file"].unique())
 
-baseline_139 = baseline[baseline["file"].isin(experiment_files) & baseline["model"].isin(MODELS)]
+baseline_141 = baseline[baseline["file"].isin(experiment_files) & baseline["model"].isin(MODELS)]
 
 bl_means = {
-    metric[1]: baseline_139.groupby("model")[metric[1]].mean().to_dict()
+    metric[1]: baseline_141.groupby("model")[metric[1]].mean().to_dict()
     for metric in METRICS
 }
 
+# ── Build plot ───────────────────────────────────────────────────────────────
 plt.rcParams.update({
     "figure.dpi":      130,
     "savefig.dpi":     300,
@@ -68,8 +66,8 @@ fig, axes = plt.subplots(1, 3, figsize=(15.6, 4.1), sharex=True, sharey=False)
 for ax, (sum_col, bl_col, title, ylabel) in zip(axes, METRICS):
     for model in MODELS:
         sub = summary[summary["model"] == model].sort_values("fraction")
-        if sub.empty: continue
-        
+        if sub.empty:
+            continue
         ax.plot(
             sub["fraction"],
             sub[sum_col],
@@ -77,10 +75,10 @@ for ax, (sum_col, bl_col, title, ylabel) in zip(axes, METRICS):
             marker=MARKERS[model],
             linewidth=2.2,
             markersize=4.8,
-            label=DISPLAY[model],
+            label=model,
             zorder=3,
         )
-        
+
     for model in MODELS:
         val = bl_means[bl_col].get(model)
         if pd.notna(val):
@@ -101,7 +99,7 @@ for ax, (sum_col, bl_col, title, ylabel) in zip(axes, METRICS):
     ax.set_ylabel(ylabel)
     ax.set_title(title)
 
-fig.suptitle("MNAR_extreme Burst Missing — επίδραση ανά μετρική", y=1.03, fontsize=12, fontweight="bold")
+fig.suptitle("MCAR Point Missing — επίδραση ανά μετρική", y=1.03, fontsize=12, fontweight="bold")
 
 handles, labels = axes[2].get_legend_handles_labels()
 baseline_line = Line2D([0], [0], color="#222222", linestyle=(0, (5, 3)), linewidth=2.6, alpha=0.95, label="clean baseline")
@@ -110,7 +108,7 @@ labels.append("clean baseline")
 axes[2].legend(handles=handles, labels=labels, loc="lower left", frameon=True)
 
 fig.tight_layout()
-out_path = os.path.join(PROJECT_ROOT, "plot_mnar_extreme_burst_clean_baselines_139.png")
+out_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "plot_mcar_point_clean_baselines_141.png")
 fig.savefig(out_path, bbox_inches="tight", facecolor="white")
 plt.close(fig)
 print(f"Saved: {out_path}")

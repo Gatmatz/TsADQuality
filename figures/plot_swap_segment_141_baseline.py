@@ -8,7 +8,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SUMMARY = os.path.join(ROOT, "results", "experiments", "swap_segment", "summary.csv")
 CHECKPOINT = os.path.join(ROOT, "results", "experiments", "swap_segment", "checkpoint.csv")
 BASELINE = os.path.join(ROOT, "results", "tables", "baseline_final_subset.csv")
@@ -75,7 +75,7 @@ labels.append("clean baseline")
 axes[2].legend(handles=handles, labels=labels, loc="lower left", frameon=True)
 fig.tight_layout()
 
-out = os.path.join(ROOT, "plot_swap_segment_141_baseline.png")
+out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "plot_swap_segment_141_baseline.png")
 fig.savefig(out, bbox_inches="tight", facecolor="white")
 plt.close(fig)
 print("Saved:", out)

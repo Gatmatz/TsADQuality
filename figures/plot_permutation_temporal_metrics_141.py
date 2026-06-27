@@ -6,7 +6,7 @@ import os
 import pandas as pd
 import matplotlib.pyplot as plt
 
-PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SUMMARY_CSV  = os.path.join(PROJECT_ROOT, "results", "experiments", "swap_permutation", "summary.csv")
 
 MODELS = ["IForest", "LOF", "MP", "AE"]
@@ -82,7 +82,7 @@ fig.suptitle("Permutation: temporal-tolerant metrics retain signal", y=1.03, fon
 axes[0].legend(loc="lower left", frameon=True)
 
 fig.tight_layout()
-out_path = os.path.join(PROJECT_ROOT, "plot_permutation_temporal_metrics_141.png")
+out_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "plot_permutation_temporal_metrics_141.png")
 fig.savefig(out_path, bbox_inches="tight", facecolor="white")
 plt.close(fig)
 print(f"Saved: {out_path}")

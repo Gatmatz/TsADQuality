@@ -9,7 +9,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-ROOT = os.path.abspath(".")
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MODELS = ["IForest", "LOF", "MP", "AE"]
 ALIAS = {"Autoencoder": "AE", "Matrix Profile": "MP", "ME": "MP"}
 
@@ -63,7 +63,7 @@ for ax, (col, title) in zip(axes, METRICS):
                 ax.text(j, i, f"{v:.1f}", ha="center", va="center", fontsize=9, color=color)
     fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
 fig.tight_layout()
-out = os.path.join(ROOT, "plot_compound_drop_heatmaps_141.png")
+out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "plot_compound_drop_heatmaps_141.png")
 fig.savefig(out, bbox_inches="tight", facecolor="white"); plt.close(fig)
 # verify
 print("AUC-PR drop (rows=combos, cols=IForest/LOF/MP/AE):")

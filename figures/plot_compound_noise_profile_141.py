@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SUMMARY_CSV  = os.path.join(PROJECT_ROOT, "results", "experiments", "compound_corruptions", "summary.csv")
 CHECKPOINT_CSV = os.path.join(PROJECT_ROOT, "results", "experiments", "compound_corruptions", "checkpoint.csv")
 BASELINE_CSV = os.path.join(PROJECT_ROOT, "results", "tables", "baseline_final_subset.csv")
@@ -96,7 +96,7 @@ for ax, col, metric, base in [
 axes[-1].legend(frameon=True)
 
 fig.tight_layout()
-out_path = os.path.join(PROJECT_ROOT, "plot_compound_noise_profile_141.png")
+out_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "plot_compound_noise_profile_141.png")
 fig.savefig(out_path, bbox_inches="tight", facecolor="white")
 plt.close(fig)
 print(f"Saved: {out_path}")

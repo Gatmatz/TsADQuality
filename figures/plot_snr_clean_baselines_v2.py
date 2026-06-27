@@ -13,7 +13,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 
-PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SUMMARY_CSV  = os.path.join(PROJECT_ROOT, "results", "experiments",
                              "white_noise_snr", "summary.csv")
 BASELINE_CSV = os.path.join(PROJECT_ROOT, "results", "tables",
@@ -129,7 +129,7 @@ ax.legend(handles=model_handles, loc="lower left", frameon=True)
 
 fig.tight_layout()
 
-out_path = os.path.join(PROJECT_ROOT, "plot_snr_clean_baselines_v2.png")
+out_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "plot_snr_clean_baselines_v2.png")
 fig.savefig(out_path, bbox_inches="tight", facecolor="white")
 plt.close(fig)
 print(f"Saved: {out_path}")

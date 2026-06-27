@@ -1,5 +1,5 @@
 """
-Recreates the 'MNAR_high Burst Missing — επίδραση ανά μετρική' plot
+Recreates the 'MNAR_extreme Burst Missing — επίδραση ανά μετρική' plot
 using ONLY the 139 files present in the missing_mnar_burst experiment.
 """
 import os
@@ -7,7 +7,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 
-PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SUMMARY_CSV  = os.path.join(PROJECT_ROOT, "results", "experiments", "missing_mnar_burst", "summary.csv")
 CHECKPOINT_CSV = os.path.join(PROJECT_ROOT, "results", "experiments", "missing_mnar_burst", "checkpoint.csv")
 BASELINE_CSV = os.path.join(PROJECT_ROOT, "results", "tables", "baseline_final_subset.csv")
@@ -31,7 +31,7 @@ METRICS = [
 ]
 
 summary = pd.read_csv(SUMMARY_CSV)
-summary = summary[summary["mechanism"] == "mnar_high_burst"]
+summary = summary[summary["mechanism"] == "mnar_extreme_burst"]
 summary = summary.groupby(["fraction", "model"], as_index=False)[
     ["mean_AUC_ROC", "mean_AUC_PR", "mean_Recall"]
 ].mean()
@@ -101,7 +101,7 @@ for ax, (sum_col, bl_col, title, ylabel) in zip(axes, METRICS):
     ax.set_ylabel(ylabel)
     ax.set_title(title)
 
-fig.suptitle("MNAR_high Burst Missing — επίδραση ανά μετρική", y=1.03, fontsize=12, fontweight="bold")
+fig.suptitle("MNAR_extreme Burst Missing — επίδραση ανά μετρική", y=1.03, fontsize=12, fontweight="bold")
 
 handles, labels = axes[2].get_legend_handles_labels()
 baseline_line = Line2D([0], [0], color="#222222", linestyle=(0, (5, 3)), linewidth=2.6, alpha=0.95, label="clean baseline")
@@ -110,7 +110,7 @@ labels.append("clean baseline")
 axes[2].legend(handles=handles, labels=labels, loc="lower left", frameon=True)
 
 fig.tight_layout()
-out_path = os.path.join(PROJECT_ROOT, "plot_mnar_high_burst_clean_baselines_139.png")
+out_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "plot_mnar_extreme_burst_clean_baselines_139.png")
 fig.savefig(out_path, bbox_inches="tight", facecolor="white")
 plt.close(fig)
 print(f"Saved: {out_path}")

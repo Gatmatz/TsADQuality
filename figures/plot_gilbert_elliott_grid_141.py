@@ -10,7 +10,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-ROOT = os.path.abspath(".")
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 s = pd.read_csv(os.path.join(ROOT, "results", "experiments", "gilbert_elliott_true_impact", "summary.csv"))
 
 MODELS = ["IForest", "LOF", "MP", "AE"]
@@ -56,6 +56,6 @@ for r, model in enumerate(MODELS):
 
 fig.suptitle("Gilbert-Elliott: τριπλή μετρική ανά (α, β) και μοντέλο", y=0.995, fontsize=13, fontweight="bold")
 fig.tight_layout(rect=[0, 0, 1, 0.985])
-out = os.path.join(ROOT, "plot_gilbert_elliott_grid_141.png")
+out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "plot_gilbert_elliott_grid_141.png")
 fig.savefig(out, bbox_inches="tight", facecolor="white"); plt.close(fig)
 print("Saved:", out)

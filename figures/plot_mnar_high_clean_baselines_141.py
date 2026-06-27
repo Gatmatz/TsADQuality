@@ -1,15 +1,15 @@
 """
-Recreates the 'MCAR Burst Missing — επίδραση ανά μετρική (μέσος όρος ανά num_bursts)' plot
-using ONLY the 141 files present in the missing_true_impact experiment.
+Recreates the 'MNAR_high Point Missing — επίδραση ανά μετρική' plot
+using ONLY the 141 files present in the missing_mnar experiment.
 """
 import os
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 
-PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
-SUMMARY_CSV  = os.path.join(PROJECT_ROOT, "results", "experiments", "missing_true_impact", "summary.csv")
-CHECKPOINT_CSV = os.path.join(PROJECT_ROOT, "results", "experiments", "missing_true_impact", "checkpoint.csv")
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SUMMARY_CSV  = os.path.join(PROJECT_ROOT, "results", "experiments", "missing_mnar", "summary.csv")
+CHECKPOINT_CSV = os.path.join(PROJECT_ROOT, "results", "experiments", "missing_mnar", "checkpoint.csv")
 BASELINE_CSV = os.path.join(PROJECT_ROOT, "results", "tables", "baseline_final_subset.csv")
 
 # ── Model config ────────────────────────────────────────────────────────────
@@ -39,11 +39,7 @@ METRICS = [
 
 # ── Load data ────────────────────────────────────────────────────────────────
 summary = pd.read_csv(SUMMARY_CSV)
-summary = summary[summary["missing_type"] == "burst"]
-# Aggregate over num_bursts by grouping on fraction and model
-summary = summary.groupby(["fraction", "model"], as_index=False)[
-    ["mean_AUC_ROC", "mean_AUC_PR", "mean_Recall"]
-].mean()
+summary = summary[summary["mechanism"] == "mnar_high"]
 
 baseline = pd.read_csv(BASELINE_CSV)
 
@@ -116,7 +112,7 @@ for ax, (sum_col, bl_col, title, ylabel) in zip(axes, METRICS):
     ax.set_ylabel(ylabel)
     ax.set_title(title)
 
-fig.suptitle("MCAR Burst Missing — επίδραση ανά μετρική (μέσος όρος ανά num_bursts)", y=1.03, fontsize=12, fontweight="bold")
+fig.suptitle("MNAR_high Point Missing — επίδραση ανά μετρική", y=1.03, fontsize=12, fontweight="bold")
 
 handles, labels = axes[2].get_legend_handles_labels()
 baseline_line = Line2D([0], [0], color="#222222", linestyle=(0, (5, 3)), linewidth=2.6, alpha=0.95, label="clean baseline")
@@ -126,7 +122,7 @@ axes[2].legend(handles=handles, labels=labels, loc="lower left", frameon=True)
 
 fig.tight_layout()
 
-out_path = os.path.join(PROJECT_ROOT, "plot_mcar_burst_clean_baselines_141.png")
+out_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "plot_mnar_high_clean_baselines_141.png")
 fig.savefig(out_path, bbox_inches="tight", facecolor="white")
 plt.close(fig)
 print(f"Saved: {out_path}")

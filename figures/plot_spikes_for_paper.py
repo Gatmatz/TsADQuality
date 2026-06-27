@@ -79,5 +79,5 @@ unique_labels = dict(zip(labels, handles))
 fig.legend(unique_labels.values(), unique_labels.keys(), loc='upper center', bbox_to_anchor=(0.5, 0.05), ncol=5)
 
 plt.tight_layout(rect=[0, 0.08, 1, 1])
-plt.savefig('spikes_performance_academic.png', dpi=300, bbox_inches='tight')
+plt.savefig(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'spikes_performance_academic.png'), dpi=300, bbox_inches='tight')
 print("Plot saved as spikes_performance_academic.png")
