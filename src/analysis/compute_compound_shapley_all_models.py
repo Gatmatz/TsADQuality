@@ -30,7 +30,7 @@ import numpy as np
 import pandas as pd
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 COMPOUND_DIR = PROJECT_ROOT / "results" / "experiments" / "compound_corruptions"
 PLOT_DIR = PROJECT_ROOT / "results" / "plots" / "compound_chapter"
 COMPOUND_SUMMARY_PATH = COMPOUND_DIR / "summary.csv"

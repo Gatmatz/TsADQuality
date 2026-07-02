@@ -3,6 +3,8 @@ Analysis script to check if the robust subset (150 datasets) is representative
 of the full benchmark.
 """
 
+from pathlib import Path
+
 import pandas as pd
 import numpy as np
 from scipy.stats import chi2_contingency
@@ -10,8 +12,9 @@ import warnings
 warnings.filterwarnings('ignore')
 
 # Paths
-FULL_BENCHMARK_PATH = r'C:\Users\gkost\thesis_timeseries\TSB-UAD\result\accuracy_table\mergedTable_AUC_ROC.csv'
-ROBUST_SUBSET_PATH = r'C:\Users\gkost\thesis_timeseries\results\tables\robust_subset_TSB.csv'
+ROOT = Path(__file__).resolve().parents[2]
+FULL_BENCHMARK_PATH = ROOT / 'TSB-UAD' / 'result' / 'accuracy_table' / 'mergedTable_AUC_ROC.csv'
+ROBUST_SUBSET_PATH = ROOT / 'results' / 'tables' / 'robust_subset_TSB.csv'
 
 # Parameters
 SPECIAL_FOLDERS = ['YAHOO', 'ECG', 'GHL', 'MITDB', 'SVDB', 'Occupancy', 'NASA-SMAP', 'NASA-MSL']
