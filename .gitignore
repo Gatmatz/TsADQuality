@@ -5,10 +5,14 @@ __pycache__/
 *.pyc
 .ipynb_checkpoints/
 
-# Ignore outputs (Generated corruptions, metrics, figures)
-outputs/metrics/*
-outputs/data_corrupted/*
-outputs/figures/*
+# Ignore heavy regenerable outputs (corruptions, metrics, plots)
+# Exception: robust_subset_TSB.csv is the 141-series subset definition
+# (reproducibility input, needed by experiments)
+outputs/*
+results/*
+!results/tables/
+results/tables/*
+!results/tables/robust_subset_TSB.csv
 
 # Ignore raw data to prevent giant commits
 data/raw/*
