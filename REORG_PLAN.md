@@ -22,19 +22,20 @@ Safety net: branch `reorg-cleanup`, restore point commit `faef59c`
 - Left intentionally: `.tmp.driveupload/` (908 MB, Drive-managed),
   `~WRL3051.tmp` (locked by Word — delete after closing Word).
 
-## Phase 2 — Tidy root scripts (TODO)
-Move with `git mv` (nothing deleted):
-- 20 root `plot_*_141.py` (final paper figure generators) → `src/experiments/plotting/paper/`
-- analysis utils → `src/analysis/`:
-  `compare_baseline_vs_benchmark.py`, `check_robust_subset_representativeness.py`,
-  `block_audit_timeseries.py`, `compute_window_slide_stats_141.py`,
-  `make_compound_v20_shapley_priority.py`
-- `_winstats.py`, `_winstats2.py` → check if scratch; else `src/utils/`
-- OPEN QUESTION: consolidate figures into one `figures/` or keep current dirs?
+## Phase 2 — Tidy root scripts ✅ DONE
+- 20 root `plot_*_141.py` + their PNGs → `figures/` (commit 5d81234),
+  patched for location-independent paths.
+- 9 analysis/docx-tooling scripts (5 root + 2 `scripts/` + `_winstats*` pair)
+  → `src/analysis/` (commit be06cd2). Path anchors patched where the move
+  broke them; CWD-relative scripts still run from repo root.
 
-## Phase 3 — Separate deliverable figures (TODO)
-Currently 4 image dirs (`regenerated_plots/`, `thesis_figures_updated/`,
-`outputs/`, loose root `.png`). Decide on a single `figures/` layout per experiment.
+## Phase 3 — Consolidate figures ✅ DONE
+- `regenerated_plots/` deleted (60 PNGs, regenerable via
+  `src/experiments/plotting/`, recoverable from faef59c) — commit 6864172.
+- `thesis_figures_updated/` → `figures/thesis/`; loose root PNG → `figures/`
+  (commit 7ad0ee9).
+- `.gitignore` now ignores `results/` + `outputs/` wholesale, EXCEPT
+  `results/tables/robust_subset_TSB.csv` (141-subset definition, tracked).
 
 ## Phase 4 — Reproducibility layer (TODO — the key for the paper)
 - `configs/` or `experiments.yaml`: seeds, 141-subset, per-experiment params in one place.
