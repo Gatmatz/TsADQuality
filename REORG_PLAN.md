@@ -68,3 +68,9 @@ Before refactor: diff Group B inline logic against any existing injectors to
 check divergence.
 
 ## Phase 5 — Clean `.gitignore` + initial commit of organized structure (TODO)
+
+---
+
+## Phase 6+ — TSB-AD era cleanup
+
+See **[REORG_PLAN_TSBAD.md](REORG_PLAN_TSBAD.md)** — planned, not executed.
