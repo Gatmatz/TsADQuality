@@ -100,6 +100,39 @@ def load_tsb_dataframe(filepath):
     df = pd.DataFrame({'value': data, 'is_anomaly': label})
     return df, canonical_name
 
+# This will be for the tsb-ad adaption
+
+def load_tsb_file_ad(filepath):
+    """ load a tsb-ad file """
+    filename = os.path.basename(filepath)
+    # Προσοχή: Τα αρχεία του TSB-AD ΕΧΟΥΝ header (π.χ. 'value', 'Label')!
+    # Γι' αυτό ΔΕΝ βάζουμε header=None όπως στο TSB-UAD.
+    df = pd.read_csv(filepath).dropna()
+    # Το TSB-AD παίρνει όλες τις στήλες εκτός από την τελευταία (0:-1) για data
+    data = df.iloc[:, 0:-1].values.astype(float)
+    # Η τελευταία στήλη λέγεται 'Label'
+    label = df['Label'].astype(int).to_numpy()
+    return data, label, filename
+
+def load_tsb_dataframe_ad(filepath):
+    """Load a TSB-AD file as a DataFrame with 'value' and 'is_anomaly' columns.
+
+    Convenience wrapper around :func:`load_tsb_file_ad` for use with
+    TSCorruptor-based corruption experiments.
+
+    Returns
+    -------
+    df : pd.DataFrame
+        Columns: ``value`` (float), ``is_anomaly`` (int).
+    canonical_name : str
+        Canonical filename for result matching.
+    """
+    data, label, canonical_name = load_tsb_file_ad(filepath)
+    # Χρησιμοποιούμε ravel() γιατί το data είναι 2D (π.χ. 1000x1) και η στήλη θέλει 1D
+    df = pd.DataFrame({'value': data.ravel(), 'is_anomaly': label})
+    return df, canonical_name
+
+
 
 def load_pretrained_ae(canonical_name, project_root):
     """Load a pre-trained AE model for scoring (no retraining needed).
