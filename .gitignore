@@ -54,3 +54,32 @@ rendered_*/
 
 # Compiled binaries
 *.exe
+
+# Vendored clone of TSB-AD (own upstream repo + ~358MB of datasets).
+# Local modifications are preserved as patches in vendor_patches/tsb_ad/.
+TSB-AD/
+
+# Evaluation output dirs (regenerable from src/experiments/)
+eval_350/
+eval_350_benchmark/
+eval_350_raw/
+eval_subset_350/
+eval_subset_easy/
+eval_subset_hard/
+eval_subset_medium/
+eval_thre_50/
+src/results/
+
+# Scratch / one-off debugging scripts
+/test.py
+/tt.py
+/scores.py
+/debug_tsb.py
+/scratch_avg.py
+/p.ipynb
+/exhaustive_test.py
+/investigate_perfect.py
+/prove_vus_bug.py
+/old_basic_metrics.py
+/old_basic_metricor.py
+/new_basic_metrics.py
