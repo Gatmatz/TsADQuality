@@ -37,14 +37,18 @@ all, so it reduces exactly to the official TSB-AD baseline.
 
 DELIBERATE DEVIATIONS from the TSB-UAD original — all documented, none accidental:
 
-  1. Singles and the clean anchor are GENERATED IN THIS RUN, not imported from
-     other experiments' checkpoints (the original's SINGLE_SOURCES table).
-     The interaction effect is a difference of drops; if the singles come from a
-     run with a different window, HP or evaluation policy, that difference is
-     contaminated by the mismatch rather than measuring interaction. Generating
-     everything here makes one command reproduce the whole table and guarantees
-     every term shares the same measuring stick. Condition NAMES are unchanged
-     (`clean`, `<type>_<sev>_only`, `a+b`), so tables group exactly as before.
+  1. Singles and the clean anchor are IMPORTED from the single-corruption runs, as in the
+     original, but only from TSB-AD runs that share this runner's pipeline: same
+     injector and parameters, same corruption seed and target, same evaluation path
+     (see SINGLE_SOURCES). The original imported its spike singles from
+     spikes_no_zscore while its compounds were z-scored, so those interaction terms
+     mixed two preprocessings; on TSB-AD every runner uses the same official pipeline.
+     Imported rows are restricted to the files each model's compounds were run on, so
+     every term of the interaction is a mean over the same series, and are written to
+     imported_singles.csv with their source. --compute-singles generates them in this
+     run instead (identical for deterministic models; for stochastic ones, e.g.
+     KMeansAD_U, the per-job seed depends on the condition name). Condition NAMES are
+     unchanged (`clean`, `<type>_<sev>_only`, `a+b`), so tables group exactly as before.
   2. No max(window, 10) floor on the metric window, and no MinMax on the scores —
      the same two deviations as every other TSB-AD port here, so the clean anchor
      reproduces the official baseline bit for bit. Rank-based metrics are
@@ -62,6 +66,8 @@ DELIBERATE DEVIATIONS from the TSB-UAD original — all documented, none acciden
 Usage:
     python src/experiments/corruption_tsbad/compound_corruptions.py --test
     python src/experiments/corruption_tsbad/compound_corruptions.py --models IForest --workers 4
+    # the singles come from white_noise_snr, missing_true_impact, spikes, freeze and
+    # gilbert_elliott_true_impact: run those first for the same models and files
     # the grid is large — start with one pair to size the run:
     python src/experiments/corruption_tsbad/compound_corruptions.py \
         --models IForest --combinations noise_missing
@@ -83,6 +89,8 @@ import pandas as pd  # noqa: E402
 
 import ts_corruptor.injectors  # noqa: E402
 from ts_corruptor.core import TSCorruptor  # noqa: E402
+from tsbad import paths  # noqa: E402
+from tsbad.checkpoint import load_all_for_summary  # noqa: E402
 from tsbad.harness import Spec, condition, run_sweep  # noqa: E402
 
 # ==========================================
@@ -129,6 +137,27 @@ APPLICATION_ORDER = {'freeze': 0, 'noise': 1, 'spikes': 2, 'missing': 3, 'ge_mis
 
 # Corruption types that introduce NaNs (i.e. trigger the true-impact evaluation branch)
 MISSING_TYPES = {'missing', 'ge_missing'}
+
+# Where each single and the clean anchor are imported from. Every source applies the same
+# injector with the same parameters, corruption seed and target, and takes the same evaluation
+# path as the compound runner does for that single (full series without NaNs, true impact with).
+# Condition names are those the source runners write.
+SINGLE_SOURCES = {
+    'noise':      ('white_noise_snr_tsbad',
+                   lambda p: f"snr_{p['snr_db']}dB"),
+    'missing':    ('missing_true_impact_tsbad',
+                   lambda p: f"point_frac_{p['fraction']}"),
+    'spikes':     ('spikes_tsbad',
+                   lambda p: f"frac_{p['fraction']}_mult_{float(p['multiplier'])}_point"),
+    'freeze':     ('freeze_tsbad',
+                   lambda p: f"frac_{p['freeze_fraction']}_ns_{p['num_stucks']}"),
+    'ge_missing': ('gilbert_elliott_true_impact_tsbad',
+                   lambda p: f"a_{p['alpha']}_b_{p['beta']}"),
+}
+# Full-series experiments whose clean anchor matches this runner's (no NaNs -> full evaluation,
+# no window clamp). The first one that has the (file, model) row is used.
+CLEAN_SOURCES = ('freeze_tsbad', 'spikes_tsbad', 'swap_point_tsbad', 'swap_segment_tsbad',
+                 'swap_permutation_tsbad', 'spikes_normal_only_tsbad', 'white_noise_snr_tsbad')
 
 
 # ==========================================
@@ -483,6 +512,80 @@ def compute_shapley_analysis(df_results, output_dir, metric='AUC_ROC'):
               f"{r['mean_recovery']:>+10.4f} {r['mean_pct']:>9.1f}%")
 
 # ==========================================
+# IMPORTED SINGLES
+# ==========================================
+
+def import_singles(df_compounds, source_root):
+    """Clean anchor + single-corruption rows from the single-corruption runs.
+
+    Restricted, per model, to the files that model's compounds were run on. Returns the rows
+    relabelled with this runner's condition names, plus a `source_experiment` /
+    `source_condition` provenance pair.
+    """
+    ok = df_compounds[df_compounds['error'].isnull()]
+    files = {m: set(g['file']) for m, g in ok.groupby('model')}
+    cache = {}
+
+    def source(experiment):
+        if experiment not in cache:
+            d = load_all_for_summary(os.path.join(source_root, experiment))
+            cache[experiment] = d[d['error'].isnull()] if not d.empty else d
+        return cache[experiment]
+
+    frames = []
+    for model, model_files in files.items():
+        # clean anchor: first full-series source that has the (file, model) row
+        needed = set(model_files)
+        for experiment in CLEAN_SOURCES:
+            d = source(experiment)
+            if d.empty or not needed:
+                continue
+            hit = d[(d['condition'] == 'clean') & (d['model'] == model) & d['file'].isin(needed)]
+            hit = hit.drop_duplicates('file')
+            if len(hit):
+                frames.append(hit.assign(condition='clean', combination_name='baseline',
+                                         condition_type='baseline', source_experiment=experiment,
+                                         source_condition='clean'))
+                needed -= set(hit['file'])
+
+        for ctype, levels in SEVERITY.items():
+            experiment, name_of = SINGLE_SOURCES[ctype]
+            d = source(experiment)
+            for sev, params in levels.items():
+                src_condition = name_of(params)
+                if d.empty:
+                    continue
+                hit = d[(d['condition'] == src_condition) & (d['model'] == model)
+                        & d['file'].isin(model_files)].drop_duplicates('file')
+                if len(hit):
+                    frames.append(hit.assign(condition=f"{_tag(ctype, sev)}_only",
+                                             combination_name='single', condition_type='single',
+                                             source_experiment=experiment,
+                                             source_condition=src_condition))
+    if not frames:
+        return pd.DataFrame()
+    return pd.concat(frames, ignore_index=True)
+
+
+def report_coverage(imported, df_compounds):
+    """Print, per model, how many of the compound files each imported term covers."""
+    ok = df_compounds[df_compounds['error'].isnull()]
+    terms = ['clean'] + [f"{_tag(ct, sv)}_only" for ct, lv in SEVERITY.items() for sv in lv]
+    for model, g in ok.groupby('model'):
+        n_files = g['file'].nunique()
+        have = (imported[imported['model'] == model].groupby('condition')['file'].nunique()
+                if not imported.empty else pd.Series(dtype=int))
+        missing = [t for t in terms if have.get(t, 0) == 0]
+        partial = [f"{t} ({have[t]}/{n_files})" for t in terms if 0 < have.get(t, 0) < n_files]
+        print(f"[Singles] {model}: {len(terms) - len(missing)}/{len(terms)} terms imported for "
+              f"{n_files} compound files")
+        if missing:
+            print(f"          not found (compounds that need them are skipped): {missing}")
+        if partial:
+            print(f"          partial file coverage: {partial}")
+
+
+# ==========================================
 # HARNESS HOOKS
 # ==========================================
 
@@ -496,9 +599,12 @@ def add_args(ap):
     ap.add_argument('--combinations', nargs='+', default=None,
                     choices=[c[0] for c in COMBINATIONS],
                     help='Run only these combinations (default: all six)')
-    ap.add_argument('--no-singles', action='store_true',
-                    help='Skip the single-corruption arms (interaction analysis then needs them '
-                         'to be already present in the checkpoints)')
+    ap.add_argument('--compute-singles', action='store_true',
+                    help='Run the clean anchor and the single-corruption arms here instead of '
+                         'importing them from the single-corruption experiments')
+    ap.add_argument('--singles-root', default=None,
+                    help='Directory holding the <experiment>_tsbad folders the singles are '
+                         'imported from (default: results/experiments)')
     ap.add_argument('--interaction-metric', default='AUC_ROC',
                     help='Metric the interaction/Shapley analysis is computed on '
                          '(default AUC_ROC, as in the original; VUS_PR is TSB-AD\'s headline)')
@@ -506,8 +612,8 @@ def add_args(ap):
 
 def build_conditions(args):
     grid = build_grid(combos=args.combinations,
-                      include_clean=not args.no_clean,
-                      include_singles=not args.no_singles)
+                      include_clean=args.compute_singles and not args.no_clean,
+                      include_singles=args.compute_singles)
     if args.test:
         grid = [c for c in grid if c['name'] in TEST_CONDITIONS]
     return [condition(c['name'],
@@ -528,6 +634,11 @@ def before_run(args, conditions):
           f"singles: {types.count('single')}, compounds: {types.count('compound')})")
     print(f"Combinations: {args.combinations or [c[0] for c in COMBINATIONS]}")
     print(f"corruption_target: {CORRUPTION_TARGET} | interaction metric: {args.interaction_metric}")
+    if args.compute_singles:
+        print("Singles and clean anchor: computed in this run")
+    else:
+        print(f"Singles and clean anchor: imported from "
+              f"{args.singles_root or paths.RESULTS_ROOT} ({', '.join(sorted({s for s, _ in SINGLE_SOURCES.values()}))})")
     print("  Large grid? --combinations / --files-csv / --max-files cut it down, and the run "
           "is resumable.\n")
 
@@ -543,6 +654,18 @@ def corrupt(ctx, cond):
 
 
 def post_summary(df_all, results_dir, args):
+    if not args.compute_singles:
+        in_run = df_all['condition_type'].isin(['baseline', 'single'])
+        if in_run.any():
+            print(f"[Singles] ignoring {int(in_run.sum())} in-run clean/single rows "
+                  f"(pass --compute-singles to analyse those instead)")
+        compounds = df_all[~in_run]
+        source_root = str(paths.resolve(args.singles_root)) if args.singles_root else str(paths.RESULTS_ROOT)
+        imported = import_singles(compounds, source_root)
+        report_coverage(imported, compounds)
+        if not imported.empty:
+            imported.to_csv(os.path.join(results_dir, "imported_singles.csv"), index=False)
+        df_all = pd.concat([compounds, imported], ignore_index=True)
     compute_interaction_analysis(df_all, results_dir, args.interaction_metric)
     compute_shapley_analysis(df_all, results_dir, args.interaction_metric)
 

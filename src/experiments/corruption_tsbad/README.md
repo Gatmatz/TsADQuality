@@ -37,6 +37,12 @@ File name = results directory without the `_tsbad` suffix.
 
 "Run so far" is a snapshot from 2026-09-14; the checkpoints are the source of truth.
 
+`compound_corruptions.py` runs only the combinations. Its clean anchor and singles are imported
+from `freeze` (clean), `white_noise_snr`, `missing_true_impact`, `spikes`, `freeze` and
+`gilbert_elliott_true_impact` (see `SINGLE_SOURCES`), restricted to the files the compounds ran
+on, so run those for the same models first; the run prints which terms it could not find.
+`--compute-singles` generates them in-run instead.
+
 TSB-UAD experiments with **no** TSB-AD version yet: `run_noise_position.py`,
 `run_anomaly_aware_corruption.py`, `run_gradual_drift.py`, `run_propagation_multiscale.py`,
 `run_missing_masking.py`. See [`../corruption_tsbuad/README.md`](../corruption_tsbuad/README.md)
