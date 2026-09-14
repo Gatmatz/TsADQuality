@@ -69,73 +69,25 @@ Usage:
     python src/experiments/corruption_tsbad/compound_corruptions.py \
         --models IForest --files-csv results/tables/representative_subset_tsb_ad_vuspr_n200.csv
 """
-import os
 
-# Pin every numeric backend to one thread BEFORE numpy/numba/stumpy are imported.
-# We parallelise across files with ProcessPoolExecutor; without this each worker also grabs
-# every core (stumpy.stump, used by MatrixProfile, is numba-parallel) and the oversubscription
-# slows the run badly. Must stay above the numpy import to take effect.
-for _v in ("NUMBA_NUM_THREADS", "OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS",
-           "MKL_NUM_THREADS", "VECLIB_MAXIMUM_THREADS", "NUMEXPR_NUM_THREADS"):
-    os.environ.setdefault(_v, "1")
-
-import sys
-import math
-import random
-import hashlib
-import argparse
-import warnings
 import itertools
-import traceback
+import math
+import os
+import sys
 from pathlib import Path
-from concurrent.futures import ProcessPoolExecutor, as_completed
 
-import numpy as np
-import pandas as pd
-from tqdm import tqdm
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import tsbad.env  # noqa: E402,F401  thread caps — must come before numpy
 
+import pandas as pd  # noqa: E402
 
-def _silence_warnings():
-    """Mute the expected, harmless noise from batch evaluation.
-
-    sklearn raises UndefinedMetricWarning whenever a threshold yields no predicted positives
-    (precision = 0/0) — routine once scores flatten, and it only touches the threshold-dependent
-    F1s, never AUC/VUS. Called at import time so spawned workers inherit the filters.
-    """
-    from sklearn.exceptions import UndefinedMetricWarning, ConvergenceWarning
-    warnings.filterwarnings("ignore", category=UndefinedMetricWarning)
-    warnings.filterwarnings("ignore", category=ConvergenceWarning)
-    warnings.filterwarnings("ignore", category=RuntimeWarning)
-    rank_warning = getattr(getattr(np, 'exceptions', None), 'RankWarning', None) \
-        or getattr(np, 'RankWarning', None)
-    if rank_warning is not None:
-        warnings.filterwarnings("ignore", category=rank_warning)
-
-
-_silence_warnings()
-
-# ==========================================
-# PATHS
-# ==========================================
-_CUR = os.path.abspath(__file__)
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(_CUR))))
-TSB_AD_PATH = os.path.join(PROJECT_ROOT, 'TSB-AD')
-SRC_PATH = os.path.join(PROJECT_ROOT, 'src')
-for p in (PROJECT_ROOT, TSB_AD_PATH, SRC_PATH):
-    if p not in sys.path:
-        sys.path.insert(0, p)
-
-from ts_corruptor.core import TSCorruptor
-import ts_corruptor.injectors  # registers injectors
+import ts_corruptor.injectors  # noqa: E402
+from ts_corruptor.core import TSCorruptor  # noqa: E402
+from tsbad.harness import Spec, condition, run_sweep  # noqa: E402
 
 # ==========================================
 # CONFIG
 # ==========================================
-_ROOT = Path(PROJECT_ROOT)
-FILE_LIST_CSV = _ROOT / "TSB-AD" / "Datasets" / "File_List" / "TSB-AD-U-Eva.csv"
-DATA_DIR = _ROOT / "TSB-AD" / "Datasets" / "TSB-AD-U"
-RESULTS_DIR = _ROOT / "results" / "experiments" / "compound_corruptions_tsbad"
-
 N_SEEDS = 1
 
 # The original passes no corruption_target, i.e. the default. Corruption may therefore land on
@@ -178,20 +130,6 @@ APPLICATION_ORDER = {'freeze': 0, 'noise': 1, 'spikes': 2, 'missing': 3, 'ge_mis
 # Corruption types that introduce NaNs (i.e. trigger the true-impact evaluation branch)
 MISSING_TYPES = {'missing', 'ge_missing'}
 
-METRIC_COLS = ['AUC_PR', 'AUC_ROC', 'VUS_PR', 'VUS_ROC', 'Standard_F1',
-               'PA_F1', 'Event_based_F1', 'R_based_F1', 'Affiliation_F']
-
-SEMISUP = {'AutoEncoder', 'AutoEncoder_2', 'StreamVAE', 'CNN', 'LSTMAD'}
-
-# Models whose window is derived from the data via find_length_rank(periodicity). Under
-# corruption the official wrapper would re-estimate it on the CORRUPTED signal; the original
-# experiment instead fixed the window from the CLEAN signal. In window_mode='clean' we replicate
-# each wrapper body verbatim but inject the clean window.
-# (IForest is absent on purpose: it uses a fixed slidingWindow=100, so corruption cannot move it.)
-WINDOW_MODELS = {'MatrixProfile', 'POLY', 'Sub_PCA', 'KShapeAD', 'KMeansAD_U'}
-
-LEGACY_CKPT = None  # set in main()
-
 
 # ==========================================
 # CONDITION BUILDER
@@ -202,7 +140,7 @@ def _tag(ctype, sev):
     return f"{ctype}_{sev}"
 
 
-def build_conditions(combos=None, include_clean=True, include_singles=True):
+def build_grid(combos=None, include_clean=True, include_singles=True):
     """Build clean anchor + singles + compounds.
 
     Unlike the original — which built compounds only and imported the rest from other
@@ -325,327 +263,6 @@ def _extract_params(condition):
             out['ge_alpha'] = p.get('alpha')
             out['ge_beta'] = p.get('beta')
     return out
-
-
-# ==========================================
-# MODELS (official TSB-AD pipeline)
-# ==========================================
-
-def _get_hp(model_name):
-    from TSB_AD.HP_list import Optimal_Uni_algo_HP_dict
-    key = 'AutoEncoder' if model_name in ('AutoEncoder', 'AutoEncoder_2') else model_name
-    return dict(Optimal_Uni_algo_HP_dict.get(key, {}))
-
-
-def _model_window(model_name, clean_data, hp, n_kept, clamp):
-    """Window for periodicity-derived models, estimated on the CLEAN signal.
-
-    `clamp` is on only when points were actually deleted: a window valid for the full series can
-    exceed the survivor count. Same clamp as the original (`min(w, n_kept // 4)`, floor 10), and
-    it is reported per row so a firing clamp stays visible.
-    """
-    from TSB_AD.utils.slidingWindows import find_length_rank
-    w = int(find_length_rank(clean_data, rank=hp.get('periodicity', 1)))
-    if not clamp:
-        return w, False
-    w_clamped = max(min(w, n_kept // 4), 10)
-    return w_clamped, (w_clamped != w)
-
-
-def _run_model(model_name, data, clean_data, hp, window_mode, file_name, nan_mask, clamp):
-    """Run a TSB-AD detector on whatever points survived.
-
-    `data` is the array the detector sees — the full corrupted series when nothing was dropped,
-    the shortened one otherwise. `nan_mask` is over the ORIGINAL timeline and is needed to remap
-    the semi-supervised train split.
-
-    window_mode='native' -> pure official wrapper (re-estimates the window on the given data).
-    window_mode='clean'  -> same model/HP, but periodicity-derived models use the window
-                            estimated from the clean signal (matches the original experiment).
-    On the clean condition both modes coincide exactly.
-
-    Returns (scores, model_window, window_clamped).
-    """
-    from TSB_AD.model_wrapper import run_Unsupervise_AD, run_Semisupervise_AD
-
-    n_kept = len(data)
-
-    if model_name in SEMISUP:
-        # train_index counts points on the ORIGINAL timeline; after deletion the split moves.
-        # Map it to the number of survivors before the original cut point.
-        train_index = int(file_name.split('.')[0].split('_')[-3])
-        train_kept = int((~nan_mask[:train_index]).sum())
-        if train_kept < 10:
-            raise ValueError(f'train split collapsed after data loss: {train_kept} points')
-        return run_Semisupervise_AD(model_name, data[:train_kept, :], data, **hp), None, False
-
-    if window_mode == 'native' or model_name not in WINDOW_MODELS:
-        return run_Unsupervise_AD(model_name, data, **hp), None, False
-
-    w, clamped = _model_window(model_name, clean_data, hp, n_kept, clamp)
-
-    if model_name == 'MatrixProfile':
-        from TSB_AD.models.MatrixProfile import MatrixProfile
-        clf = MatrixProfile(window=w); clf.fit(data)
-        return clf.decision_scores_.ravel(), w, clamped
-    if model_name == 'POLY':
-        from TSB_AD.models.POLY import POLY
-        clf = POLY(power=hp.get('power', 3), window=w); clf.fit(data)
-        return clf.decision_scores_.ravel(), w, clamped
-    if model_name == 'Sub_PCA':
-        from TSB_AD.models.PCA import PCA
-        clf = PCA(slidingWindow=w, n_components=hp.get('n_components')); clf.fit(data)
-        return clf.decision_scores_.ravel(), w, clamped
-    if model_name == 'KShapeAD':
-        from TSB_AD.models.SAND import SAND
-        clf = SAND(pattern_length=w, subsequence_length=4 * w)
-        clf.fit(data.squeeze(), overlaping_rate=int(1.5 * w))
-        return clf.decision_scores_.ravel(), w, clamped
-    if model_name == 'KMeansAD_U':
-        from TSB_AD.models.KMeansAD import KMeansAD
-        clf = KMeansAD(k=hp.get('n_clusters', 20), window_size=w, stride=1, n_jobs=1)
-        return clf.fit_predict(data).ravel(), w, clamped
-    raise ValueError(f'unhandled window model: {model_name}')
-
-
-def _fit_length(score, n_kept):
-    """Defensive: TSB-AD wrappers return full-length scores, but pad/truncate if one does not."""
-    score = np.asarray(score).ravel()
-    if len(score) > n_kept:
-        return score[:n_kept]
-    if len(score) < n_kept:
-        return np.pad(score, (0, n_kept - len(score)), mode='edge')
-    return score
-
-
-# ==========================================
-# CORE WORKER
-# ==========================================
-
-def process_single_job(job_args):
-    _silence_warnings()   # defensive: ensure filters are active in this worker process
-    (file_path, condition, seed, model_names, window_mode) = job_args
-    file_name = os.path.basename(file_path)
-    condition_name = condition['name']
-
-    try:
-        from TSB_AD.evaluation.metrics import get_metrics
-        from TSB_AD.utils.slidingWindows import find_length_rank
-
-        # 1. Load (official TSB-AD convention). reset_index because the injectors address rows
-        # by LABEL (df.loc[...]) while generating POSITIONS — a dropna() gap would misalign them.
-        # inject_sensor_stuck in particular walks a block with `.loc[start_idx + i]`.
-        df = pd.read_csv(file_path).dropna().reset_index(drop=True)
-        value_col = df.columns[0]           # 'Data'
-        label_col = 'Label' if 'Label' in df.columns else df.columns[-1]
-
-        clean_data = df.iloc[:, 0:-1].values.astype(float)          # (N, feats)
-        labels = df[label_col].astype(int).to_numpy()
-        n = len(df)
-
-        # Metric window from the CLEAN signal, rank=1 — the official formula, but fixed so the
-        # measuring stick stays identical across every condition of the grid.
-        sliding_window = int(find_length_rank(clean_data[:, 0].reshape(-1, 1), rank=1))
-
-        # 2. Corrupt — every corruption of this condition, in physical order
-        if not condition['corruptions']:
-            data_full = clean_data
-        else:
-            corruptor = TSCorruptor(df.copy(), value_col=value_col, label_col=label_col,
-                                    seed=seed, corruption_target=CORRUPTION_TARGET)
-            apply_corruptions(corruptor, condition, n)
-            df_work = corruptor.get_corrupted_df()
-            data_full = df_work.iloc[:, 0:-1].values.astype(float)
-
-        # The evaluation branch follows the REALISED NaNs, not the declared condition: a missing
-        # level that happened to drop nothing must still take the standard path.
-        nan_mask = np.isnan(data_full).any(axis=1)
-        has_nan = bool(nan_mask.any())
-
-        masked_anomaly = nan_mask & (labels == 1)
-        masked_normal = nan_mask & (labels == 0)
-        n_lost_anomalies = int(masked_anomaly.sum())
-        actual_missing_rate = float(nan_mask.sum()) / n
-
-        # 3. The detector sees only the survivors — no imputation
-        model_data = data_full[~nan_mask] if has_nan else data_full
-        n_kept = len(model_data)
-
-        if n_kept < sliding_window + 10:
-            return {'status': 'skipped', 'file': file_name, 'condition': condition_name,
-                    'reason': f'too few points after corruption: {n_kept}'}
-        if labels[~masked_normal].sum() == 0:
-            return {'status': 'skipped', 'file': file_name, 'condition': condition_name,
-                    'reason': 'no anomaly survives in the evaluation set'}
-
-        params = _extract_params(condition)
-
-        # 4. Model + eval via the OFFICIAL pipeline
-        results = []
-        for model_name in model_names:
-            base = {'file': file_name,
-                    'condition': condition_name,
-                    'combination_name': condition['combination_name'],
-                    'condition_type': condition['condition_type'],
-                    **params,
-                    'has_missing': condition['has_missing'],
-                    'actual_missing_rate': round(actual_missing_rate, 4),
-                    'n_lost_anomalies': n_lost_anomalies,
-                    'n_original': n, 'n_kept': n_kept,
-                    'metric_window': sliding_window,
-                    'seed': seed, 'model': model_name}
-            try:
-                hp = _get_hp(model_name)
-                # Deterministic per-job seeding: some TSB-AD models are stochastic (e.g. KMeansAD
-                # builds sklearn KMeans without random_state). Stable md5, not Python's salted hash.
-                _key = f"{file_name}|{condition_name}|{seed}|{model_name}".encode()
-                _js = int(hashlib.md5(_key).hexdigest()[:8], 16) % (2**31 - 1)
-                np.random.seed(_js)
-                random.seed(_js)
-
-                output, model_window, clamped = _run_model(
-                    model_name, model_data, clean_data, hp, window_mode,
-                    file_name, nan_mask, clamp=has_nan)
-
-                if not isinstance(output, np.ndarray):
-                    results.append({**base, 'model_window': model_window,
-                                    'window_clamped': clamped,
-                                    'error': f'wrapper returned: {str(output)[:120]}'})
-                    continue
-
-                score = _fit_length(output, n_kept)
-
-                if has_nan:
-                    # --- TRUE IMPACT remapping ---
-                    # The original wrote a literal 0.0 for lost anomalies, valid there because it
-                    # MinMax-scaled scores to [0, 1] first, making 0.0 the true minimum.
-                    # TSB-AD wrappers return RAW scores, so a literal 0.0 would rank a destroyed
-                    # anomaly near the TOP and inflate the metrics as more anomalies are lost.
-                    # score.min() keeps the original semantics: tied last with the least
-                    # anomalous point, scale-free, and rank metrics ignore the difference.
-                    lost_anomaly_score = float(score.min())
-                    full_score = np.full(n, np.nan)
-                    full_score[~nan_mask] = score
-                    full_score[masked_anomaly] = lost_anomaly_score  # destroyed anomaly = missed
-                    eval_mask = ~masked_normal          # normals destroyed by the loss = excluded
-                    eval_scores = full_score[eval_mask]
-                    eval_labels = labels[eval_mask]
-                else:
-                    eval_scores = score
-                    eval_labels = labels
-                    eval_mask = np.ones(n, dtype=bool)
-
-                if np.isnan(eval_scores).any():
-                    results.append({**base, 'model_window': model_window,
-                                    'window_clamped': clamped,
-                                    'error': 'NaN left in evaluation scores'})
-                    continue
-
-                m = get_metrics(eval_scores, eval_labels, slidingWindow=sliding_window)
-                row = {**base, 'model_window': model_window, 'window_clamped': clamped,
-                       'n_evaluated': int(eval_mask.sum()), 'error': None}
-                for k, v in m.items():          # store ALL metrics TSB-AD returns
-                    row[k.replace('-', '_')] = v
-                results.append(row)
-            except Exception as e:
-                results.append({**base, 'error': str(e)})
-        return {'status': 'success', 'results': results}
-
-    except Exception:
-        return {'status': 'error', 'file': file_name, 'condition': condition_name,
-                'error': traceback.format_exc()}
-
-
-# ==========================================
-# CHECKPOINTS (one file per model, so runs of different models never clobber each other)
-# ==========================================
-def _ckpt_path(model):
-    return os.path.join(RESULTS_DIR, f"checkpoint_{model}.csv")
-
-
-def _load_checkpoints(models):
-    """Previous successful results for `models` only, plus any legacy combined file."""
-    records, paths = [], [_ckpt_path(m) for m in models]
-    if LEGACY_CKPT and os.path.exists(LEGACY_CKPT):
-        paths.append(LEGACY_CKPT)
-    for p in paths:
-        if not os.path.exists(p):
-            continue
-        try:
-            df = pd.read_csv(p)
-            if 'model' in df.columns:
-                df = df[df['model'].isin(models)]
-            ok = df[df['error'].isna()] if 'error' in df.columns else df
-            records.extend(ok.to_dict('records'))
-        except Exception as e:
-            print(f"Warning: could not read {os.path.basename(p)}: {e}")
-    seen, uniq, keys = set(), [], set()
-    for r in records:
-        # key on `condition` (a string): parameter columns are NaN for the clean anchor, so a
-        # parameter-based key would never match on resume
-        k = f"{r['file']}|{r['condition']}|{r['seed']}|{r['model']}"
-        if k in seen:
-            continue
-        seen.add(k); keys.add(k); uniq.append(r)
-    return uniq, keys
-
-
-def _save_checkpoints(all_results, models):
-    if not all_results:
-        return
-    df = pd.DataFrame(all_results)
-    for m in models:
-        sub = df[df['model'] == m]
-        if not sub.empty:
-            sub.to_csv(_ckpt_path(m), index=False)
-
-
-def _load_all_results_for_summary():
-    import glob
-    paths = sorted(glob.glob(os.path.join(RESULTS_DIR, "checkpoint_*.csv")))
-    if LEGACY_CKPT and os.path.exists(LEGACY_CKPT):
-        paths.append(LEGACY_CKPT)
-    frames = []
-    for p in paths:
-        try:
-            frames.append(pd.read_csv(p))
-        except Exception:
-            pass
-    if not frames:
-        return pd.DataFrame()
-    df = pd.concat(frames, ignore_index=True)
-    if {'file', 'condition', 'seed', 'model'}.issubset(df.columns):
-        df = df.drop_duplicates(subset=['file', 'condition', 'seed', 'model'], keep='first')
-    return df
-
-
-# ==========================================
-# SUMMARY
-# ==========================================
-
-def compute_summary(df_results, output_path):
-    cols = [c for c in METRIC_COLS if c in df_results.columns]
-    ok = df_results[df_results['error'].isnull()]
-    if ok.empty:
-        print("No successful runs to summarize.")
-        return
-    keys = [k for k in ['condition', 'combination_name', 'condition_type', 'model']
-            if k in ok.columns]
-    rows = []
-    for name, g in ok.groupby(keys, dropna=False):
-        row = dict(zip(keys, name if isinstance(name, tuple) else (name,)))
-        row['n_runs'] = len(g)
-        for extra in ('actual_missing_rate', 'n_lost_anomalies', 'n_kept'):
-            if extra in g.columns:
-                row[f'mean_{extra}'] = round(g[extra].mean(), 4)
-        if 'window_clamped' in g.columns:
-            row['n_window_clamped'] = int(g['window_clamped'].fillna(False).astype(bool).sum())
-        for c in cols:
-            row[f'mean_{c}'] = round(g[c].mean(), 4)
-            row[f'std_{c}'] = round(g[c].std(), 4)
-        rows.append(row)
-    pd.DataFrame(rows).to_csv(output_path, index=False)
-    print(f"Summary saved to {output_path}")
 
 
 # ==========================================
@@ -865,165 +482,89 @@ def compute_shapley_analysis(df_results, output_dir, metric='AUC_ROC'):
         print(f"{r['corruption']:<12} {r['model']:<14} {r['mean_shapley']:>9.4f} "
               f"{r['mean_recovery']:>+10.4f} {r['mean_pct']:>9.1f}%")
 
-
 # ==========================================
-# MAIN
+# HARNESS HOOKS
 # ==========================================
 
-def _read_file_list(path):
-    """Accept either the official TSB-AD eval list ('file_name') or a subset table ('file')."""
-    df = pd.read_csv(path)
-    for col in ('file_name', 'file', 'filename'):
-        if col in df.columns:
-            return df[col].astype(str).tolist()
-    raise ValueError(f"{path}: no 'file_name' or 'file' column")
+# --test keeps two files and this handful of conditions: one of each single type plus a
+# compound with and without deleted points
+TEST_CONDITIONS = {'clean', 'noise_low_only', 'missing_low_only', 'freeze_low_only',
+                   'noise_low+missing_low', 'noise_high+missing_high', 'missing_low+freeze_low'}
 
 
-def main():
-    ap = argparse.ArgumentParser(description='Compound corruptions — TSB-AD (350)')
-    ap.add_argument('--test', action='store_true', help='Smoke test: 2 files, tiny grid')
-    ap.add_argument('--models', nargs='+', default=['IForest'],
-                    help='TSB-AD models (IForest, MatrixProfile, Sub_PCA, POLY, KShapeAD, KMeansAD_U, ...)')
-    ap.add_argument('--workers', type=int, default=4)
+def add_args(ap):
     ap.add_argument('--combinations', nargs='+', default=None,
                     choices=[c[0] for c in COMBINATIONS],
                     help='Run only these combinations (default: all six)')
-    ap.add_argument('--files-csv', default=None,
-                    help='Alternative file list (e.g. a validated subset table). '
-                         'Reads a file_name/file column.')
-    ap.add_argument('--max-files', type=int, default=None, help='Cap the number of files')
-    ap.add_argument('--no-clean', action='store_true', help='Skip the clean anchor')
     ap.add_argument('--no-singles', action='store_true',
                     help='Skip the single-corruption arms (interaction analysis then needs them '
                          'to be already present in the checkpoints)')
     ap.add_argument('--interaction-metric', default='AUC_ROC',
                     help='Metric the interaction/Shapley analysis is computed on '
                          '(default AUC_ROC, as in the original; VUS_PR is TSB-AD\'s headline)')
-    ap.add_argument('--window-mode', choices=['clean', 'native'], default='clean',
-                    help="'clean' (default): periodicity models use the window from the clean "
-                         "signal, as in the original experiment. 'native': pure TSB-AD wrapper.")
-    ap.add_argument('--summary-only', action='store_true',
-                    help='Recompute summary/interaction/Shapley from existing checkpoints')
-    args = ap.parse_args()
 
-    os.makedirs(RESULTS_DIR, exist_ok=True)
-    global LEGACY_CKPT
-    LEGACY_CKPT = os.path.join(RESULTS_DIR, "checkpoint.csv")
 
-    if args.summary_only:
-        df_all = _load_all_results_for_summary()
-        if df_all.empty:
-            print("No checkpoints found.")
-            return
-        print(f"Summarizing {len(df_all)} results across models: "
-              f"{sorted(df_all['model'].dropna().unique())}")
-        compute_summary(df_all, os.path.join(RESULTS_DIR, "summary.csv"))
-        compute_interaction_analysis(df_all, RESULTS_DIR, args.interaction_metric)
-        compute_shapley_analysis(df_all, RESULTS_DIR, args.interaction_metric)
-        return
-
-    list_path = Path(args.files_csv) if args.files_csv else FILE_LIST_CSV
-    if not list_path.is_absolute():
-        list_path = _ROOT / list_path
-    if not list_path.exists():
-        print(f"[ERROR] File list not found: {list_path}")
-        return
-
-    files = _read_file_list(list_path)
-    file_paths = [str(DATA_DIR / f) for f in files]
-
-    conditions = build_conditions(combos=args.combinations,
-                                  include_clean=not args.no_clean,
-                                  include_singles=not args.no_singles)
-
+def build_conditions(args):
+    grid = build_grid(combos=args.combinations,
+                      include_clean=not args.no_clean,
+                      include_singles=not args.no_singles)
     if args.test:
-        file_paths = file_paths[:2]
-        keep = {'clean', 'noise_low_only', 'missing_low_only', 'freeze_low_only',
-                'noise_low+missing_low', 'noise_high+missing_high', 'missing_low+freeze_low'}
-        conditions = [c for c in conditions if c['name'] in keep]
-        print("!!! TEST MODE !!!")
-    elif args.max_files:
-        file_paths = file_paths[:args.max_files]
+        grid = [c for c in grid if c['name'] in TEST_CONDITIONS]
+    return [condition(c['name'],
+                      {'combination_name': c['combination_name'],
+                       'condition_type': c['condition_type'],
+                       **_extract_params(c),
+                       'has_missing': c['has_missing']},
+                      params=c, n_seeds=N_SEEDS)
+            for c in grid]
 
-    n_base = sum(1 for c in conditions if c['condition_type'] == 'baseline')
-    n_single = sum(1 for c in conditions if c['condition_type'] == 'single')
-    n_comp = sum(1 for c in conditions if c['condition_type'] == 'compound')
-    n_jobs_total = len(file_paths) * len(conditions) * N_SEEDS
 
-    print(f"\n{'='*66}\n  Compound corruptions — TSB-AD ({len(file_paths)} files)\n{'='*66}")
+def before_run(args, conditions):
+    types = [c['row']['condition_type'] for c in conditions]
     print("  Application order: freeze -> noise -> spikes -> missing")
     print("  NaNs present -> true impact (lost anomaly = min score, lost normal excluded)")
     print("  No NaNs      -> standard evaluation on the full corrupted series")
-    print(f"{'='*66}")
-    print(f"File list: {list_path.name}")
-    print(f"Conditions: {len(conditions)}  (baseline: {n_base}, singles: {n_single}, "
-          f"compounds: {n_comp})")
-    print(f"Combinations: {[c[0] for c in COMBINATIONS] if not args.combinations else args.combinations}")
-    print(f"Models: {args.models} | Workers: {args.workers} | window_mode: {args.window_mode}")
+    print(f"Conditions: {len(conditions)}  (baseline: {types.count('baseline')}, "
+          f"singles: {types.count('single')}, compounds: {types.count('compound')})")
+    print(f"Combinations: {args.combinations or [c[0] for c in COMBINATIONS]}")
     print(f"corruption_target: {CORRUPTION_TARGET} | interaction metric: {args.interaction_metric}")
-    print(f"Total jobs: {n_jobs_total}")
-    if n_jobs_total > 20000:
-        print("  ^ large grid. --combinations / --files-csv / --max-files cut it down, and the "
-              "run is resumable.")
-    print(f"{'='*66}\n")
+    print("  Large grid? --combinations / --files-csv / --max-files cut it down, and the run "
+          "is resumable.\n")
 
-    all_results, completed = _load_checkpoints(args.models)
-    if all_results:
-        print(f"Loaded checkpoints: {len(all_results)} successful results for {args.models}.")
 
-    jobs = []
-    for fp in file_paths:
-        fn = os.path.basename(fp)
-        for cond in conditions:
-            for seed in range(N_SEEDS):
-                need = [m for m in args.models
-                        if f"{fn}|{cond['name']}|{seed}|{m}" not in completed]
-                if need:
-                    jobs.append((fp, cond, seed, need, args.window_mode))
+def corrupt(ctx, cond):
+    """Every corruption of this condition, in physical order (nothing for the clean anchor)."""
+    if not cond['corruptions']:
+        return ctx.clean_data, {}
+    corruptor = TSCorruptor(ctx.df.copy(), value_col=ctx.value_col, label_col=ctx.label_col,
+                            seed=ctx.seed, corruption_target=CORRUPTION_TARGET)
+    apply_corruptions(corruptor, cond, ctx.n)
+    return corruptor.get_corrupted_df().iloc[:, 0:-1].values.astype(float), {}
 
-    # Longest-first scheduling: MatrixProfile costs ~O(n^2) and series span 18k-900k points,
-    # so a few files carry most of the work. Ordering affects scheduling only, never results.
-    try:
-        sizes = {fp: os.path.getsize(fp) for fp in set(j[0] for j in jobs)}
-        jobs.sort(key=lambda j: sizes.get(j[0], 0), reverse=True)
-    except OSError:
-        pass
 
-    print(f"Jobs scheduled: {len(jobs)}")
-    if jobs:
-        new, skipped = 0, 0
-        with ProcessPoolExecutor(max_workers=args.workers) as ex:
-            futs = {ex.submit(process_single_job, j): j for j in jobs}
-            for fut in tqdm(as_completed(futs), total=len(jobs), desc="compound"):
-                res = fut.result()
-                if res['status'] == 'success':
-                    all_results.extend(res['results'])
-                    new += len(res['results'])
-                elif res['status'] == 'skipped':
-                    skipped += 1
-                else:
-                    print(f"Error in {res.get('file','?')} / {res.get('condition','?')}: "
-                          f"{str(res.get('error',''))[:200]}")
-                if new >= 200:   # frequent autosave: a crash costs minutes, not hours
-                    _save_checkpoints(all_results, args.models)
-                    new = 0
-        _save_checkpoints(all_results, args.models)
-        if skipped:
-            print(f"Skipped {skipped} job(s): too few points / no anomaly left after corruption.")
-        print("\nFinal results saved to: "
-              + ", ".join(os.path.basename(_ckpt_path(m)) for m in args.models))
+def post_summary(df_all, results_dir, args):
+    compute_interaction_analysis(df_all, results_dir, args.interaction_metric)
+    compute_shapley_analysis(df_all, results_dir, args.interaction_metric)
 
-    # Summary covers every model on disk, so it stays complete when models run one at a time.
-    df_all = _load_all_results_for_summary()
-    if not df_all.empty:
-        print(f"\nSummarizing {len(df_all)} results across models: "
-              f"{sorted(df_all['model'].dropna().unique())}")
-        compute_summary(df_all, os.path.join(RESULTS_DIR, "summary.csv"))
-        compute_interaction_analysis(df_all, RESULTS_DIR, args.interaction_metric)
-        compute_shapley_analysis(df_all, RESULTS_DIR, args.interaction_metric)
 
-    print(f"\n[Done] Results in {RESULTS_DIR}")
-
+SPEC = Spec(
+    name='compound_corruptions_tsbad',
+    title='Compound corruptions — TSB-AD',
+    family='survivors',
+    # the survivor path (drop, clamp, true-impact remap) only where points were actually lost;
+    # conditions without NaNs are evaluated on the full corrupted series
+    survivor_rules='if_dropped',
+    build_conditions=build_conditions,
+    corrupt=corrupt,
+    add_args=add_args,
+    before_run=before_run,
+    post_summary=post_summary,
+    summary_keys=('condition', 'combination_name', 'condition_type', 'model'),
+    summary_means=(('actual_missing_rate', 4), ('n_lost_anomalies', 4), ('n_kept', 4)),
+    test_help='Smoke test: 2 files, tiny grid',
+    test_files=2,
+    progress_desc='compound',
+)
 
 if __name__ == "__main__":
-    main()
+    run_sweep(SPEC)
