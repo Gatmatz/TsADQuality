@@ -80,63 +80,38 @@ Usage:
     python src/experiments/corruption_tsbad/propagation.py \
         --models IForest Sub_PCA Sub_LOF MatrixProfile --workers 4
 """
-import os
 
-# Pin every numeric backend to one thread BEFORE numpy/numba/stumpy are imported.
-# We parallelise across files with ProcessPoolExecutor; without this each worker also grabs
-# every core (stumpy.stump, used by MatrixProfile, is numba-parallel) and the oversubscription
-# slows the run badly. Must stay above the numpy import to take effect.
-for _v in ("NUMBA_NUM_THREADS", "OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS",
-           "MKL_NUM_THREADS", "VECLIB_MAXIMUM_THREADS", "NUMEXPR_NUM_THREADS"):
-    os.environ.setdefault(_v, "1")
-
-import sys
-import random
-import hashlib
 import argparse
-import warnings
+import os
+import sys
 import traceback
-from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from pathlib import Path
 
-import numpy as np
-import pandas as pd
-from tqdm import tqdm
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import tsbad.env  # noqa: E402,F401  thread caps — must come before numpy
 
+import numpy as np  # noqa: E402
+import pandas as pd  # noqa: E402
+from tqdm import tqdm  # noqa: E402
 
-def _silence_warnings():
-    """Mute the expected, harmless noise from batch evaluation."""
-    from sklearn.exceptions import UndefinedMetricWarning, ConvergenceWarning
-    warnings.filterwarnings("ignore", category=UndefinedMetricWarning)
-    warnings.filterwarnings("ignore", category=ConvergenceWarning)
-    warnings.filterwarnings("ignore", category=RuntimeWarning)
-    rank_warning = getattr(getattr(np, 'exceptions', None), 'RankWarning', None) \
-        or getattr(np, 'RankWarning', None)
-    if rank_warning is not None:
-        warnings.filterwarnings("ignore", category=rank_warning)
+from ts_corruptor.localized import (  # noqa: E402
+    inject_localized_missing, inject_localized_noise, inject_localized_spikes)
+from tsbad import paths  # noqa: E402
+from tsbad.checkpoint import (  # noqa: E402
+    ckpt_path, load_all_for_summary, load_checkpoints, save_checkpoints)
+from tsbad.env import silence_warnings  # noqa: E402
+from tsbad.evaluate import fit_length  # noqa: E402
+from tsbad.models import SEMISUP, get_hp, seed_job  # noqa: E402
 
+# This runner does not use tsbad.harness.run_sweep: it produces no metrics row. It corrupts one
+# centred segment and measures how far the anomaly scores move, per zone and per normalisation.
 
-_silence_warnings()
-
-# ==========================================
-# PATHS
-# ==========================================
-_CUR = os.path.abspath(__file__)
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(_CUR))))
-TSB_AD_PATH = os.path.join(PROJECT_ROOT, 'TSB-AD')
-SRC_PATH = os.path.join(PROJECT_ROOT, 'src')
-for p in (PROJECT_ROOT, TSB_AD_PATH, SRC_PATH):
-    if p not in sys.path:
-        sys.path.insert(0, p)
+RESULTS_NAME = "propagation_tsbad"
 
 # ==========================================
 # CONFIG
 # ==========================================
-_ROOT = Path(PROJECT_ROOT)
-FILE_LIST_CSV = _ROOT / "TSB-AD" / "Datasets" / "File_List" / "TSB-AD-U-Eva.csv"
-DATA_DIR = _ROOT / "TSB-AD" / "Datasets" / "TSB-AD-U"
-RESULTS_DIR = _ROOT / "results" / "experiments" / "propagation_tsbad"
-
 CORRUPTION_RATIO = 0.10       # corrupt 10% of the series, centred on the midpoint
 SEED = 42                     # the original's fixed seed, reset per condition
 SCORE_DIFF_THRESHOLD = 0.05   # a point counts as "impacted" above 5% of the max diff
@@ -153,58 +128,15 @@ CORRUPTIONS = {
 # The three score normalisations compared on every row. See the module docstring.
 NORMS = ('minmax', 'raw', 'rank')
 
-SEMISUP = {'AutoEncoder', 'AutoEncoder_2', 'StreamVAE', 'CNN', 'LSTMAD'}
-
 # NOTE: there is deliberately no WINDOW_MODELS list here. Which models derive their window
 # from the data is read from each wrapper's signature at call time (see _window_kwargs), because
 # a hardcoded list silently misses ten of the fifteen periodicity-derived TSB-AD models.
 
 ZONE_COLS = ['corruption_zone', 'near', 'mid', 'far']
 
-LEGACY_CKPT = None  # set in main()
-
-
 # ==========================================
-# LOCALIZED CORRUPTION (verbatim from the original — standalone numpy, not ts_corruptor)
+# LOCALIZED CORRUPTION (injectors in ts_corruptor.localized, verbatim from the original)
 # ==========================================
-
-def inject_localized_noise(data, start, end, snr_db, rng):
-    """Inject white noise into data[start:end] at the given SNR."""
-    corrupted = data.copy()
-    segment = data[start:end]
-    signal_power = np.mean(segment ** 2)
-    if signal_power < 1e-10:
-        signal_power = 1e-10
-    snr_linear = 10 ** (snr_db / 10)
-    noise_power = signal_power / snr_linear
-    noise = rng.normal(0, np.sqrt(noise_power), size=end - start)
-    corrupted[start:end] = segment + noise
-    return corrupted
-
-
-def inject_localized_spikes(data, start, end, magnitude, rng):
-    """Inject random spikes into data[start:end]. Magnitude is in units of the GLOBAL std."""
-    corrupted = data.copy()
-    n_spikes = max(1, (end - start) // 10)   # ~10% of the segment becomes a spike
-    spike_indices = rng.choice(range(start, end), size=n_spikes, replace=False)
-    std = np.std(data)
-    if std < 1e-10:
-        std = 1.0
-    for idx in spike_indices:
-        sign = rng.choice([-1, 1])
-        corrupted[idx] = data[idx] + sign * magnitude * std
-    return corrupted
-
-
-def inject_localized_missing(data, start, end, fraction, rng):
-    """Set a fraction of data[start:end] to NaN."""
-    corrupted = data.copy()
-    segment_len = end - start
-    n_missing = max(1, int(fraction * segment_len))
-    missing_indices = rng.choice(range(start, end), size=n_missing, replace=False)
-    corrupted[missing_indices] = np.nan
-    return corrupted
-
 
 def build_corrupted(kind, params, raw1d, start, end, sliding_window):
     """Apply one localized corruption and return a model-ready 1-D array (no NaNs left).
@@ -236,16 +168,9 @@ def build_corrupted(kind, params, raw1d, start, end, sliding_window):
 
     raise ValueError(f'unknown corruption type: {kind}')
 
-
 # ==========================================
-# MODELS (official TSB-AD pipeline)
+# MODELS (official TSB-AD pipeline, one shared window per file)
 # ==========================================
-
-def _get_hp(model_name):
-    from TSB_AD.HP_list import Optimal_Uni_algo_HP_dict
-    key = 'AutoEncoder' if model_name in ('AutoEncoder', 'AutoEncoder_2') else model_name
-    return dict(Optimal_Uni_algo_HP_dict.get(key, {}))
-
 
 def _shared_window(clean_data):
     """ONE window per file, shared by every model — exactly what the original did.
@@ -317,16 +242,6 @@ def _run_model(model_name, data, hp, window, file_name):
         return run_Unsupervise_AD(model_name, data, **hp2)
     finally:
         mw.find_length_rank = orig
-
-
-def _fit_length(score, n):
-    """TSB-AD wrappers return full-length scores; pad/truncate defensively so the two runs align."""
-    score = np.asarray(score).ravel()
-    if len(score) > n:
-        return score[:n]
-    if len(score) < n:
-        return np.pad(score, (0, n - len(score)), mode='edge')
-    return score
 
 
 # ==========================================
@@ -411,7 +326,7 @@ def propagation_all_norms(scores_clean, scores_corrupted, s, e, n):
 # ==========================================
 
 def process_single_job(job_args):
-    _silence_warnings()
+    silence_warnings()
     (file_path, model_name, conditions) = job_args
     file_name = os.path.basename(file_path)
 
@@ -428,19 +343,17 @@ def process_single_job(job_args):
         corrupt_start = (n - corrupt_size) // 2
         corrupt_end = corrupt_start + corrupt_size
 
-        hp = _get_hp(model_name)
+        hp = get_hp(model_name)
         window = _shared_window(clean_data)   # one window per FILE, same for every model
 
         # Deterministic per-(file, model) seeding for stochastic detectors. The SAME seed is set
         # before the clean and every corrupted fit, so a score difference can only come from the
         # data, never from the detector's own randomness.
-        _key = f"{file_name}|{model_name}".encode()
-        _js = int(hashlib.md5(_key).hexdigest()[:8], 16) % (2 ** 31 - 1)
+        seed_key = f"{file_name}|{model_name}"
 
         def _seeded_run(arr2d):
-            np.random.seed(_js)
-            random.seed(_js)
-            return _fit_length(_run_model(model_name, arr2d, hp, window, file_name), n)
+            seed_job(seed_key)
+            return fit_length(_run_model(model_name, arr2d, hp, window, file_name), n)
 
         # --- the clean run happens ONCE and is reused by all nine conditions ---
         scores_clean = _seeded_run(clean_data)
@@ -491,12 +404,10 @@ def process_single_job(job_args):
         return {'status': 'error', 'file': file_name, 'model': model_name,
                 'error': traceback.format_exc()}
 
-
 # ==========================================
 # CHECKPOINTS (one file per model)
 # ==========================================
-def _ckpt_path(model):
-    return os.path.join(RESULTS_DIR, f"checkpoint_{model}.csv")
+KEY_COLS = ('file', 'corruption_type', 'severity', 'model')
 
 
 def _job_key(file_name, model):
@@ -504,29 +415,12 @@ def _job_key(file_name, model):
     return f"{file_name}|{model}"
 
 
-def _load_checkpoints(models):
-    records, paths = [], [_ckpt_path(m) for m in models]
-    if LEGACY_CKPT and os.path.exists(LEGACY_CKPT):
-        paths.append(LEGACY_CKPT)
-    for p in paths:
-        if not os.path.exists(p):
-            continue
-        try:
-            d = pd.read_csv(p)
-            if 'model' in d.columns:
-                d = d[d['model'].isin(models)]
-            ok = d[d['error'].isna()] if 'error' in d.columns else d
-            records.extend(ok.to_dict('records'))
-        except Exception as e:
-            print(f"Warning: could not read {os.path.basename(p)}: {e}")
+def _row_key(r):
+    return f"{r['file']}|{r['corruption_type']}|{r['severity']}|{r['model']}"
 
-    seen, uniq = set(), []
-    for r in records:
-        k = f"{r['file']}|{r['corruption_type']}|{r['severity']}|{r['model']}"
-        if k in seen:
-            continue
-        seen.add(k); uniq.append(r)
 
+def _load_checkpoints(results_dir, models):
+    uniq, _ = load_checkpoints(results_dir, models, key=_row_key)
     # A (file, model) job counts as done only when all its condition rows are present.
     expected = sum(len(v) for v in CORRUPTIONS.values())
     counts = {}
@@ -534,36 +428,6 @@ def _load_checkpoints(models):
         counts[_job_key(r['file'], r['model'])] = counts.get(_job_key(r['file'], r['model']), 0) + 1
     done = {k for k, c in counts.items() if c >= expected}
     return uniq, done
-
-
-def _save_checkpoints(all_results, models):
-    if not all_results:
-        return
-    df = pd.DataFrame(all_results)
-    for m in models:
-        sub = df[df['model'] == m]
-        if not sub.empty:
-            sub.to_csv(_ckpt_path(m), index=False)
-
-
-def _load_all_results():
-    import glob
-    paths = sorted(glob.glob(os.path.join(RESULTS_DIR, "checkpoint_*.csv")))
-    if LEGACY_CKPT and os.path.exists(LEGACY_CKPT):
-        paths.append(LEGACY_CKPT)
-    frames = []
-    for p in paths:
-        try:
-            frames.append(pd.read_csv(p))
-        except Exception:
-            pass
-    if not frames:
-        return pd.DataFrame()
-    df = pd.concat(frames, ignore_index=True)
-    keys = ['file', 'corruption_type', 'severity', 'model']
-    if set(keys).issubset(df.columns):
-        df = df.drop_duplicates(subset=keys, keep='first')
-    return df
 
 
 # ==========================================
@@ -615,18 +479,9 @@ def write_summaries(df, output_dir):
     print(f"\nSaved: propagation_results.csv, propagation_summary.csv, "
           f"propagation_compact_*.csv, propagation_zones_*.csv")
 
-
 # ==========================================
 # MAIN
 # ==========================================
-
-def _read_file_list(path):
-    df = pd.read_csv(path)
-    for col in ('file_name', 'file', 'filename'):
-        if col in df.columns:
-            return df[col].astype(str).tolist()
-    raise ValueError(f"{path}: no 'file_name' or 'file' column")
-
 
 def main():
     ap = argparse.ArgumentParser(description='Corruption propagation — TSB-AD (350)')
@@ -640,30 +495,31 @@ def main():
     ap.add_argument('--files-csv', default=None,
                     help='Alternative file list (reads a file_name/file column)')
     ap.add_argument('--max-files', type=int, default=None, help='Cap the number of files')
+    ap.add_argument('--results-dir', default=None,
+                    help=f'Write checkpoints and summaries here instead of '
+                         f'results/experiments/{RESULTS_NAME}/ (e.g. for a verification run)')
     ap.add_argument('--summary-only', action='store_true',
                     help='Rebuild the summary tables from existing checkpoints')
     args = ap.parse_args()
 
-    os.makedirs(RESULTS_DIR, exist_ok=True)
-    global LEGACY_CKPT
-    LEGACY_CKPT = os.path.join(RESULTS_DIR, "checkpoint.csv")
+    results_dir = str(paths.resolve(args.results_dir) if args.results_dir
+                      else paths.results_dir(RESULTS_NAME))
+    os.makedirs(results_dir, exist_ok=True)
 
     if args.summary_only:
-        df = _load_all_results()
+        df = load_all_for_summary(results_dir, KEY_COLS)
         if df.empty:
             print("No checkpoints found.")
             return
-        write_summaries(df, RESULTS_DIR)
+        write_summaries(df, results_dir)
         return
 
-    list_path = Path(args.files_csv) if args.files_csv else FILE_LIST_CSV
-    if not list_path.is_absolute():
-        list_path = _ROOT / list_path
+    list_path = paths.resolve(args.files_csv) if args.files_csv else paths.FILE_LIST_CSV
     if not list_path.exists():
         print(f"[ERROR] File list not found: {list_path}")
         return
 
-    file_paths = [str(DATA_DIR / f) for f in _read_file_list(list_path)]
+    file_paths = [str(paths.DATA_DIR / f) for f in paths.read_file_list(list_path)]
     if args.test:
         idx = np.linspace(0, len(file_paths) - 1, 3, dtype=int)
         file_paths = [file_paths[i] for i in idx]
@@ -684,13 +540,14 @@ def main():
     print(f"File list: {list_path.name}")
     print(f"Corruption types: {types}  ->  {len(conditions)} conditions")
     print(f"Models: {args.models} | Workers: {args.workers}")
+    print(f"Results: {results_dir}")
     print(f"Jobs (file x model): {len(file_paths) * len(args.models)}   "
           f"rows: {len(file_paths) * len(args.models) * len(conditions)}")
     print(f"Model fits: {len(file_paths) * len(args.models) * (1 + len(conditions))} "
           f"(the clean run is shared across conditions)")
     print(f"{'='*70}\n")
 
-    all_results, done = _load_checkpoints(args.models)
+    all_results, done = _load_checkpoints(results_dir, args.models)
     if all_results:
         print(f"Loaded checkpoints: {len(all_results)} rows, {len(done)} complete (file, model) jobs.")
 
@@ -719,19 +576,19 @@ def main():
                     print(f"Error in {res.get('file','?')} / {res.get('model','?')}: "
                           f"{str(res.get('error',''))[:200]}")
                 if new >= 200:
-                    _save_checkpoints(all_results, args.models)
+                    save_checkpoints(results_dir, all_results, args.models)
                     new = 0
-        _save_checkpoints(all_results, args.models)
+        save_checkpoints(results_dir, all_results, args.models)
         print("\nFinal results saved to: "
-              + ", ".join(os.path.basename(_ckpt_path(m)) for m in args.models))
+              + ", ".join(os.path.basename(ckpt_path(results_dir, m)) for m in args.models))
 
-    df = _load_all_results()
+    df = load_all_for_summary(results_dir, KEY_COLS)
     if not df.empty:
         print(f"\nSummarizing {len(df)} rows across models: "
               f"{sorted(df['model'].dropna().unique())}")
-        write_summaries(df, RESULTS_DIR)
+        write_summaries(df, results_dir)
 
-    print(f"\n[Done] Results in {RESULTS_DIR}")
+    print(f"\n[Done] Results in {results_dir}")
 
 
 if __name__ == "__main__":
