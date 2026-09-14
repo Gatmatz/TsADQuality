@@ -190,6 +190,11 @@ def inject_sensor_stuck(corruptor, num_stucks=2, stuck_length=200):
 def inject_swap(corruptor, fraction=0.05, swap_length=1, max_distance=None):
     """
     Swaps segments of the time series efficiently using NumPy arrays.
+
+    Known issue, kept as is so the TSB-UAD results stay reproducible: once swap_length > 1
+    this under-delivers the requested fraction (out-of-bounds pairs are dropped silently and
+    later segments can overlap earlier ones), sometimes swapping nothing at all. For an exact
+    fraction use ts_corruptor.swap.swap_segments_fast; see that module's docstring.
     """
     n = len(corruptor.df)
     target_indices = np.array(corruptor.get_target_indices())
