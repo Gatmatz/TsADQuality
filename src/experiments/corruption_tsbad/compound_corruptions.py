@@ -44,9 +44,12 @@ DELIBERATE DEVIATIONS from the TSB-UAD original — all documented, none acciden
      spikes_no_zscore while its compounds were z-scored, so those interaction terms
      mixed two preprocessings, and its singles/clean covered 148 series against 141 for
      the compounds; on TSB-AD every runner uses the same official pipeline.
-     Imported rows are restricted to the files each model's compounds were run on, so
-     every term of the interaction is a mean over the same series, and are written to
-     imported_singles.csv with their source. --compute-singles generates them in this
+     Imported rows are restricted to the files each model's compounds were run on and are
+     written to imported_singles.csv with their source. On top of that, every interaction
+     and Shapley row averages its terms over the series ALL of them have (n_series, with
+     n_series_excluded), so a run that stopped halfway or a model that failed on some
+     files cannot mix different series into one equation; the original averaged each term
+     over whatever series it had. --compute-singles generates them in this
      run instead (identical for deterministic models; for stochastic ones, e.g.
      KMeansAD_U, the per-job seed depends on the condition name). Condition NAMES are
      unchanged (`clean`, `<type>_<sev>_only`, `a+b`), so tables group exactly as before.
@@ -336,6 +339,38 @@ def _classify(interaction):
     return 'additive'
 
 
+def _per_series(ok, metric):
+    """Model -> table of `metric` with one row per series and one column per condition.
+
+    Seeds are averaged first, so every series weighs the same in the means taken from it.
+    """
+    values = ok.groupby(['model', 'condition', 'file'])[metric].mean()
+    return {model: g.droplevel('model').unstack('condition')
+            for model, g in values.groupby(level='model')}
+
+
+def _common_series(table, conditions):
+    """Restrict one set of terms (clean, singles, compound) to the series ALL of them have.
+
+    A mean over different series would mix series difficulty into the drop terms, e.g. after a
+    run stopped halfway or a model failed on some files. Returns the restricted table and the
+    number of series left out because only some of the conditions have them, or (None, 0) when
+    a condition is absent altogether.
+    """
+    if any(c not in table.columns for c in conditions):
+        return None, 0
+    terms = table[list(conditions)]
+    common = terms.dropna()
+    return common, int(terms.notna().any(axis=1).sum()) - len(common)
+
+
+def _report_excluded(df, label):
+    short = df[df['n_series_excluded'] > 0]
+    if not short.empty:
+        print(f"[{label}] {len(short)}/{len(df)} rows left out series that some of their terms "
+              f"lack (up to {int(short['n_series_excluded'].max())}; see n_series_excluded)")
+
+
 def compute_interaction_analysis(df_results, output_dir, metric='AUC_ROC'):
     """Is compound damage additive, synergistic, or sub-additive?
 
@@ -344,7 +379,8 @@ def compute_interaction_analysis(df_results, output_dir, metric='AUC_ROC'):
         predicted    = sum of the individual drops
         interaction  = drop(compound) - predicted
     A positive interaction means the corruptions hurt each other's detectability more than
-    their separate damages would suggest.
+    their separate damages would suggest. Every term is a mean over the same series: those
+    that have the clean anchor, every single and the compound (n_series).
     """
     if metric not in df_results.columns:
         print(f"[Interaction] metric {metric} not in results — skipping.")
@@ -353,12 +389,9 @@ def compute_interaction_analysis(df_results, output_dir, metric='AUC_ROC'):
     if ok.empty:
         return
 
-    # Mean over files, per (condition, model)
-    mean_auc = ok.groupby(['condition', 'model'])[metric].mean().to_dict()
-    models = sorted(ok['model'].dropna().unique())
-    baseline = {m: mean_auc[('clean', m)] for m in models if ('clean', m) in mean_auc}
-
-    if not baseline:
+    tables = _per_series(ok, metric)
+    models = sorted(tables)
+    if not any('clean' in t.columns for t in tables.values()):
         print("[Interaction] no clean baseline found — skipping.")
         return
 
@@ -369,12 +402,15 @@ def compute_interaction_analysis(df_results, output_dir, metric='AUC_ROC'):
             tags = [_tag(ct, sv) for ct, sv in zip(ctypes, sev_combo)]
             compound_name = '+'.join(tags)
 
+            singles = [f"{t}_only" for t in tags]
             for model in models:
-                bl = baseline.get(model)
-                auc_singles = [mean_auc.get((f"{t}_only", model)) for t in tags]
-                auc_compound = mean_auc.get((compound_name, model))
-                if bl is None or auc_compound is None or any(a is None for a in auc_singles):
+                common, n_excluded = _common_series(tables[model],
+                                                    ['clean', *singles, compound_name])
+                if common is None or common.empty:
                     continue
+                bl = common['clean'].mean()
+                auc_singles = [common[s].mean() for s in singles]
+                auc_compound = common[compound_name].mean()
 
                 drops = [bl - a for a in auc_singles]
                 drop_compound = bl - auc_compound
@@ -392,7 +428,9 @@ def compute_interaction_analysis(df_results, output_dir, metric='AUC_ROC'):
                        'predicted_additive': round(predicted, 4),
                        'interaction': round(interaction, 4),
                        'interaction_pct': round(pct, 1),
-                       'interaction_type': _classify(interaction)}
+                       'interaction_type': _classify(interaction),
+                       'n_series': len(common),
+                       'n_series_excluded': n_excluded}
                 for i, (t, a, d) in enumerate(zip(tags, auc_singles, drops)):
                     letter = chr(ord('A') + i)
                     row[f'severity_{letter}'] = t
@@ -409,6 +447,7 @@ def compute_interaction_analysis(df_results, output_dir, metric='AUC_ROC'):
     df_inter.insert(0, 'metric', metric)
     df_inter.to_csv(os.path.join(output_dir, f"interaction_analysis_{metric}.csv"), index=False)
     print(f"Interaction analysis: {len(df_inter)} rows -> interaction_analysis_{metric}.csv")
+    _report_excluded(df_inter, 'Interaction')
 
     summary = df_inter.groupby(['combination_name', 'model']).agg(
         mean_interaction=('interaction', 'mean'),
@@ -416,6 +455,7 @@ def compute_interaction_analysis(df_results, output_dir, metric='AUC_ROC'):
         n_synergistic=('interaction_type', lambda x: (x == 'synergistic').sum()),
         n_additive=('interaction_type', lambda x: (x == 'additive').sum()),
         n_subadditive=('interaction_type', lambda x: (x == 'sub-additive').sum()),
+        min_n_series=('n_series', 'min'),
     ).reset_index()
     summary.insert(0, 'metric', metric)
     summary.to_csv(os.path.join(output_dir, f"interaction_summary_{metric}.csv"), index=False)
@@ -438,7 +478,8 @@ def compute_shapley_analysis(df_results, output_dir, metric='AUC_ROC'):
     Each corruption's average marginal contribution to total damage across all coalitions,
     answering the practical question: which problem should you fix FIRST for the biggest
     recovery? Needs the baseline, all 3 singles, all 3 pairs and the triple — every one of
-    which this script produces, so no cross-experiment lookup can go stale.
+    which this script produces, so no cross-experiment lookup can go stale. All 8 coalition
+    means are taken over the same series (n_series).
     """
     if metric not in df_results.columns:
         return
@@ -446,10 +487,8 @@ def compute_shapley_analysis(df_results, output_dir, metric='AUC_ROC'):
     if ok.empty:
         return
 
-    mean_auc = ok.groupby(['condition', 'model'])[metric].mean().to_dict()
-    models = sorted(ok['model'].dropna().unique())
-    baseline = {m: mean_auc[('clean', m)] for m in models if ('clean', m) in mean_auc}
-    if not baseline:
+    tables = _per_series(ok, metric)
+    if not any('clean' in t.columns for t in tables.values()):
         print("[Shapley] no clean baseline found — skipping.")
         return
 
@@ -474,19 +513,15 @@ def compute_shapley_analysis(df_results, output_dir, metric='AUC_ROC'):
             frozenset(players):             f"{tag['noise']}+{tag['spikes']}+{tag['missing']}",
         }
 
-        for model in baseline:
-            aucs, skip = {}, False
-            for coalition, cond_name in conditions.items():
-                auc = mean_auc.get((cond_name, model))
-                if auc is None:
-                    skip = True
-                    break
-                aucs[coalition] = auc
-            if skip:
+        for model in sorted(tables):
+            common, n_excluded = _common_series(tables[model], list(conditions.values()))
+            if common is None or common.empty:
                 continue
+            aucs = {coalition: common[cond_name].mean()
+                    for coalition, cond_name in conditions.items()}
 
             # Damage function v(S) = AUC(clean) - AUC(S)
-            v = {s: baseline[model] - a for s, a in aucs.items()}
+            v = {s: aucs[frozenset()] - a for s, a in aucs.items()}
             total_damage = v[frozenset(players)]
 
             for corr in players:
@@ -516,6 +551,8 @@ def compute_shapley_analysis(df_results, output_dir, metric='AUC_ROC'):
                     'total_damage': round(total_damage, 4),
                     'shapley_pct': (round(shapley / total_damage * 100, 1)
                                     if total_damage > 0.001 else 0.0),
+                    'n_series': len(common),
+                    'n_series_excluded': n_excluded,
                 })
 
     if not rows:
@@ -526,11 +563,13 @@ def compute_shapley_analysis(df_results, output_dir, metric='AUC_ROC'):
     df_sh.insert(0, 'metric', metric)
     df_sh.to_csv(os.path.join(output_dir, f"shapley_ablation_{metric}.csv"), index=False)
     print(f"Shapley ablation: {len(df_sh)} rows -> shapley_ablation_{metric}.csv")
+    _report_excluded(df_sh, 'Shapley')
 
     summary = df_sh.groupby(['corruption', 'model']).agg(
         mean_shapley=('shapley_value', 'mean'),
         mean_recovery=('recovery_if_fixed', 'mean'),
         mean_pct=('shapley_pct', 'mean'),
+        min_n_series=('n_series', 'min'),
     ).reset_index()
     summary.insert(0, 'metric', metric)
     summary.to_csv(os.path.join(output_dir, f"shapley_summary_{metric}.csv"), index=False)

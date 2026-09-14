@@ -46,6 +46,9 @@ and compounds): with global placement a spike on an anomaly hides most of the da
 deviation 5 in the module docstring. Interaction and Shapley are written per metric
 (`--interaction-metrics`, default `AUC_ROC VUS_PR`) to `*_<metric>.csv`; the column names stay
 `baseline_auc`, `auc_A`, … for every metric, and the `metric` column says which one it is.
+Each interaction/Shapley row averages its terms over the series all of them have (`n_series`;
+`n_series_excluded` counts the ones left out), so it can be recomputed with `--summary-only` at
+any point — after more combinations or singles are run — without mixing different series.
 
 TSB-UAD experiments with **no** TSB-AD version yet: `run_noise_position.py`,
 `run_anomaly_aware_corruption.py`, `run_gradual_drift.py`, `run_propagation_multiscale.py`,
