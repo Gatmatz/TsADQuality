@@ -38,10 +38,14 @@ File name = results directory without the `_tsbad` suffix.
 "Run so far" is a snapshot from 2026-09-14; the checkpoints are the source of truth.
 
 `compound_corruptions.py` runs only the combinations. Its clean anchor and singles are imported
-from `freeze` (clean), `white_noise_snr`, `missing_true_impact`, `spikes`, `freeze` and
+from `freeze` (clean), `white_noise_snr`, `missing_true_impact`, `spikes_normal_only`, `freeze` and
 `gilbert_elliott_true_impact` (see `SINGLE_SOURCES`), restricted to the files the compounds ran
 on, so run those for the same models first; the run prints which terms it could not find.
-`--compute-singles` generates them in-run instead.
+`--compute-singles` generates them in-run instead. Spikes land on normal points only (in singles
+and compounds): with global placement a spike on an anomaly hides most of the damage — see
+deviation 5 in the module docstring. Interaction and Shapley are written per metric
+(`--interaction-metrics`, default `AUC_ROC VUS_PR`) to `*_<metric>.csv`; the column names stay
+`baseline_auc`, `auc_A`, … for every metric, and the `metric` column says which one it is.
 
 TSB-UAD experiments with **no** TSB-AD version yet: `run_noise_position.py`,
 `run_anomaly_aware_corruption.py`, `run_gradual_drift.py`, `run_propagation_multiscale.py`,

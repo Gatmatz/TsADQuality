@@ -42,7 +42,8 @@ DELIBERATE DEVIATIONS from the TSB-UAD original — all documented, none acciden
      injector and parameters, same corruption seed and target, same evaluation path
      (see SINGLE_SOURCES). The original imported its spike singles from
      spikes_no_zscore while its compounds were z-scored, so those interaction terms
-     mixed two preprocessings; on TSB-AD every runner uses the same official pipeline.
+     mixed two preprocessings, and its singles/clean covered 148 series against 141 for
+     the compounds; on TSB-AD every runner uses the same official pipeline.
      Imported rows are restricted to the files each model's compounds were run on, so
      every term of the interaction is a mean over the same series, and are written to
      imported_singles.csv with their source. --compute-singles generates them in this
@@ -62,18 +63,34 @@ DELIBERATE DEVIATIONS from the TSB-UAD original — all documented, none acciden
      declared in SEVERITY instead of a hardcoded ['low','med','high'], so the
      noise 'extreme' (0 dB) arm is analysed too. This only ADDS rows; every row
      the original would have produced is still produced identically.
+  5. Spikes land on NORMAL points only (SPIKES_TARGET), in singles and compounds alike;
+     noise, missing and freeze stay global. The original compound placed spikes
+     globally, while the standalone spike experiment used normal points only. A spike on
+     an anomaly makes that anomaly easier to detect, so the evaluation credits the
+     corruption instead of charging it: on the thesis data (TSB-UAD, IForest, 136 paired
+     series, run_spikes vs run_spikes_normal_only, same grid and preprocessing) the
+     AUC-ROC drop was 0.065 with global placement vs 0.486 normal-only at 20% x 10 std,
+     -0.005 (an improvement) vs 0.026 at 1% x 3 std, global higher in 77-92% of series,
+     Wilcoxon p < 1e-11 at every level. Noise, missing and freeze do not help an
+     anomaly they hit (they blur, delete or flatten it), so they keep the global
+     target. The spike singles therefore come from spikes_normal_only.
+  6. Interaction and Shapley are computed for several metrics at once
+     (--interaction-metrics, default AUC_ROC as in the original plus VUS_PR, TSB-AD's
+     headline metric), one set of files per metric (interaction_analysis_<metric>.csv ...).
+     Columns keep the original names (baseline_auc, auc_A, ...) for every metric; a leading
+     `metric` column says which score they hold.
 
 Usage:
     python src/experiments/corruption_tsbad/compound_corruptions.py --test
     python src/experiments/corruption_tsbad/compound_corruptions.py --models IForest --workers 4
-    # the singles come from white_noise_snr, missing_true_impact, spikes, freeze and
-    # gilbert_elliott_true_impact: run those first for the same models and files
+    # the singles come from white_noise_snr, missing_true_impact, spikes_normal_only, freeze
+    # and gilbert_elliott_true_impact: run those first for the same models and files
     # the grid is large — start with one pair to size the run:
     python src/experiments/corruption_tsbad/compound_corruptions.py \
         --models IForest --combinations noise_missing
-    # or run on a smaller validated file list:
+    # or run on the validated 200-series subset:
     python src/experiments/corruption_tsbad/compound_corruptions.py \
-        --models IForest --files-csv results/tables/representative_subset_tsb_ad_vuspr_n200.csv
+        --models IForest --files-csv results/tables/representative_subset_tsb_ad_vuspr_big_n200.csv
 """
 
 import itertools
@@ -101,6 +118,8 @@ N_SEEDS = 1
 # The original passes no corruption_target, i.e. the default. Corruption may therefore land on
 # anomaly points — deliberately: destroying anomalies is part of what this experiment measures.
 CORRUPTION_TARGET = 'global'
+# ...except spikes, which only land on normal points (deviation 5), as in spikes_normal_only.
+SPIKES_TARGET = 'only_normal'
 
 # Severity levels per corruption type — byte-identical to the original.
 # Noise carries a fourth 'extreme' level (0 dB) that the others do not.
@@ -147,8 +166,8 @@ SINGLE_SOURCES = {
                    lambda p: f"snr_{p['snr_db']}dB"),
     'missing':    ('missing_true_impact_tsbad',
                    lambda p: f"point_frac_{p['fraction']}"),
-    'spikes':     ('spikes_tsbad',
-                   lambda p: f"frac_{p['fraction']}_mult_{float(p['multiplier'])}_point"),
+    'spikes':     ('spikes_normal_only_tsbad',
+                   lambda p: f"frac_{p['fraction']}_mult_{float(p['multiplier'])}"),
     'freeze':     ('freeze_tsbad',
                    lambda p: f"frac_{p['freeze_fraction']}_ns_{p['num_stucks']}"),
     'ge_missing': ('gilbert_elliott_true_impact_tsbad',
@@ -253,7 +272,14 @@ def apply_corruptions(corruptor, condition, series_length):
         elif ctype == 'missing':
             ts_corruptor.injectors.inject_point_missing(corruptor, **params)
         elif ctype == 'spikes':
-            ts_corruptor.injectors.inject_spikes(corruptor, **params)
+            # Spikes land on NORMAL points only (module docstring, deviation 5): a spike on an
+            # anomaly makes it easier to detect and hides the damage. The other corruptions keep
+            # CORRUPTION_TARGET.
+            corruptor.corruption_target = SPIKES_TARGET
+            try:
+                ts_corruptor.injectors.inject_spikes(corruptor, **params)
+            finally:
+                corruptor.corruption_target = CORRUPTION_TARGET
         elif ctype == 'freeze':
             # Same dynamic block length as run_freeze.py / freeze.py: the requested
             # fraction of the series split evenly across num_stucks frozen blocks.
@@ -378,9 +404,11 @@ def compute_interaction_analysis(df_results, output_dir, metric='AUC_ROC'):
         print("[Interaction] no complete compound/single/baseline triples found — skipping.")
         return
 
+    # Column names keep the original 'auc' spelling; `metric` says which score they hold.
     df_inter = pd.DataFrame(rows)
-    df_inter.to_csv(os.path.join(output_dir, "interaction_analysis.csv"), index=False)
-    print(f"Interaction analysis: {len(df_inter)} rows -> interaction_analysis.csv")
+    df_inter.insert(0, 'metric', metric)
+    df_inter.to_csv(os.path.join(output_dir, f"interaction_analysis_{metric}.csv"), index=False)
+    print(f"Interaction analysis: {len(df_inter)} rows -> interaction_analysis_{metric}.csv")
 
     summary = df_inter.groupby(['combination_name', 'model']).agg(
         mean_interaction=('interaction', 'mean'),
@@ -389,7 +417,8 @@ def compute_interaction_analysis(df_results, output_dir, metric='AUC_ROC'):
         n_additive=('interaction_type', lambda x: (x == 'additive').sum()),
         n_subadditive=('interaction_type', lambda x: (x == 'sub-additive').sum()),
     ).reset_index()
-    summary.to_csv(os.path.join(output_dir, "interaction_summary.csv"), index=False)
+    summary.insert(0, 'metric', metric)
+    summary.to_csv(os.path.join(output_dir, f"interaction_summary_{metric}.csv"), index=False)
 
     print(f"\n=== Interaction summary ({metric}) ===")
     print(f"{'Combination':<24} {'Model':<14} {'mean int':>10} {'syn':>5} {'add':>5} {'sub':>5}")
@@ -494,15 +523,17 @@ def compute_shapley_analysis(df_results, output_dir, metric='AUC_ROC'):
         return
 
     df_sh = pd.DataFrame(rows)
-    df_sh.to_csv(os.path.join(output_dir, "shapley_ablation.csv"), index=False)
-    print(f"Shapley ablation: {len(df_sh)} rows -> shapley_ablation.csv")
+    df_sh.insert(0, 'metric', metric)
+    df_sh.to_csv(os.path.join(output_dir, f"shapley_ablation_{metric}.csv"), index=False)
+    print(f"Shapley ablation: {len(df_sh)} rows -> shapley_ablation_{metric}.csv")
 
     summary = df_sh.groupby(['corruption', 'model']).agg(
         mean_shapley=('shapley_value', 'mean'),
         mean_recovery=('recovery_if_fixed', 'mean'),
         mean_pct=('shapley_pct', 'mean'),
     ).reset_index()
-    summary.to_csv(os.path.join(output_dir, "shapley_summary.csv"), index=False)
+    summary.insert(0, 'metric', metric)
+    summary.to_csv(os.path.join(output_dir, f"shapley_summary_{metric}.csv"), index=False)
 
     print(f"\n=== Shapley summary ({metric}) — mean contribution to damage ===")
     print(f"{'Corruption':<12} {'Model':<14} {'Shapley':>9} {'Recovery':>10} {'% damage':>10}")
@@ -589,10 +620,11 @@ def report_coverage(imported, df_compounds):
 # HARNESS HOOKS
 # ==========================================
 
-# --test keeps two files and this handful of conditions: one of each single type plus a
-# compound with and without deleted points
-TEST_CONDITIONS = {'clean', 'noise_low_only', 'missing_low_only', 'freeze_low_only',
-                   'noise_low+missing_low', 'noise_high+missing_high', 'missing_low+freeze_low'}
+# --test keeps two files and this handful of conditions: singles of four types, compounds with and
+# without deleted points, and compounds with (normal-only) spikes
+TEST_CONDITIONS = {'clean', 'noise_low_only', 'missing_low_only', 'freeze_low_only', 'spikes_low_only',
+                   'noise_low+missing_low', 'noise_high+missing_high', 'missing_low+freeze_low',
+                   'noise_low+spikes_low', 'spikes_low+missing_low'}
 
 
 def add_args(ap):
@@ -605,9 +637,10 @@ def add_args(ap):
     ap.add_argument('--singles-root', default=None,
                     help='Directory holding the <experiment>_tsbad folders the singles are '
                          'imported from (default: results/experiments)')
-    ap.add_argument('--interaction-metric', default='AUC_ROC',
-                    help='Metric the interaction/Shapley analysis is computed on '
-                         '(default AUC_ROC, as in the original; VUS_PR is TSB-AD\'s headline)')
+    ap.add_argument('--interaction-metrics', nargs='+', default=['AUC_ROC', 'VUS_PR'],
+                    help='Metrics the interaction/Shapley analysis is computed on, one set of '
+                         'files per metric (default: AUC_ROC, as in the original, and VUS_PR, '
+                         'TSB-AD\'s headline metric)')
 
 
 def build_conditions(args):
@@ -633,7 +666,8 @@ def before_run(args, conditions):
     print(f"Conditions: {len(conditions)}  (baseline: {types.count('baseline')}, "
           f"singles: {types.count('single')}, compounds: {types.count('compound')})")
     print(f"Combinations: {args.combinations or [c[0] for c in COMBINATIONS]}")
-    print(f"corruption_target: {CORRUPTION_TARGET} | interaction metric: {args.interaction_metric}")
+    print(f"corruption_target: {CORRUPTION_TARGET} (spikes: {SPIKES_TARGET}) | "
+          f"interaction metrics: {args.interaction_metrics}")
     if args.compute_singles:
         print("Singles and clean anchor: computed in this run")
     else:
@@ -666,8 +700,9 @@ def post_summary(df_all, results_dir, args):
         if not imported.empty:
             imported.to_csv(os.path.join(results_dir, "imported_singles.csv"), index=False)
         df_all = pd.concat([compounds, imported], ignore_index=True)
-    compute_interaction_analysis(df_all, results_dir, args.interaction_metric)
-    compute_shapley_analysis(df_all, results_dir, args.interaction_metric)
+    for metric in args.interaction_metrics:
+        compute_interaction_analysis(df_all, results_dir, metric)
+        compute_shapley_analysis(df_all, results_dir, metric)
 
 
 SPEC = Spec(
