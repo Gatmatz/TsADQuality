@@ -34,9 +34,6 @@ venv/
 *.docx
 *.pdf
 
-# Vendored copy of Time-Series-Library (has its own upstream repo)
-Time-Series-Library/
-
 # Editor / tooling
 .vscode/
 .claude/

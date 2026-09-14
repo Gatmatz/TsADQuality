@@ -10,8 +10,6 @@ import time
 import traceback
 from scipy.interpolate import interp1d
 
-# Add Time-Series-Library to path
-sys.path.append(os.path.join(os.getcwd(), 'Time-Series-Library'))
 from TSB_UAD.vus.metrics import get_metrics
 
 try:

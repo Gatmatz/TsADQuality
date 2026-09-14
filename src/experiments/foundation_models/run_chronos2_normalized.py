@@ -8,8 +8,6 @@ from tqdm import tqdm
 import time
 import math
 
-# Add Time-Series-Library to path for internal imports
-sys.path.append(os.path.join(os.getcwd(), 'Time-Series-Library'))
 from TSB_UAD.vus.metrics import get_metrics
 
 # Try to import Chronos from the official library
