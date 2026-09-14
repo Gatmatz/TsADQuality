@@ -15,7 +15,9 @@ numbers were measured on:
     swap_segment          5 fractions x 5 num_swaps
     freeze                4 fractions x 5 num_stucks
 
-One job = one (file, model): the clean internals are measured once, then every condition.
+One job = one (file, model): the clean internals are measured once per window policy (the clean
+anchor of the full-family experiments, and the clamped clean anchor of the missing experiment),
+then every condition is compared against the clean reference of its own experiment.
 Rows are keyed on file|experiment|condition|seed|model (condition names repeat across
 experiments, e.g. frac_0.01_ns_1 exists in both freeze and swap_segment).
 
@@ -100,14 +102,30 @@ def process_file_model(job):
         base = _context(file_path, seed=0, options={}, family='full')
         clean, labels, n = base.clean_data, base.labels, base.n
         hp = get_hp(model_name)
+        clean_refs = {}
 
-        seed_job(f"{file_name}|clean|0|{model_name}")
-        clean_scores, clean_int = measure(model_name, clean, clean, labels, hp, clamp=False)
-        if check_scores:
-            seed_job(f"{file_name}|clean|0|{model_name}")
-            if not _same_scores(clean_scores, run_model_full(model_name, clean, clean, hp, 'clean', file_name)):
-                return {'status': 'error', 'file': file_name, 'model': model_name,
-                        'error': 'score check failed on the clean series'}
+        def clean_reference(clamp):
+            """Clean internals under the window policy of the experiment's own clean anchor.
+
+            Full-family experiments use the raw clean-signal window; the missing experiments clamp
+            it (floor 10) even on the clean anchor. Comparing a corrupted run against a clean run
+            with a different window would measure the window change, not the corruption.
+            """
+            if clamp not in clean_refs:
+                key = f"{file_name}|clean|0|{model_name}"
+                seed_job(key)
+                scores, internals = measure(model_name, clean, clean, labels, hp, clamp=clamp)
+                if check_scores:
+                    seed_job(key)
+                    if clamp:
+                        ref = run_model_survivors(model_name, clean, clean, hp, 'clean', file_name,
+                                                  np.zeros(n, dtype=bool), clamp=True)[0]
+                    else:
+                        ref = run_model_full(model_name, clean, clean, hp, 'clean', file_name)
+                    if not _same_scores(scores, ref):
+                        raise RuntimeError('score check failed on the clean series')
+                clean_refs[clamp] = internals
+            return clean_refs[clamp]
 
         rows = []
         for exp_name, overrides in EXPERIMENTS:
@@ -125,6 +143,7 @@ def process_file_model(job):
                         key = spec.seed_key(file_name, cond, seed, model_name)
 
                         if spec.family == 'full':
+                            clean_int = clean_reference(clamp=False)
                             seed_job(key)
                             scores, corr_int = measure(model_name, data, clean, labels, hp, clamp=False)
                             can_compare_nn = True
@@ -142,6 +161,7 @@ def process_file_model(job):
                                 raise Skip(f'too few points after data loss: {n_kept}')
                             if labels[~(nan_mask & (labels == 0))].sum() == 0:
                                 raise Skip('no anomaly survives in the evaluation set')
+                            clean_int = clean_reference(clamp=spec.survivor_rules == 'always')
                             seed_job(key)
                             scores, corr_int = measure(model_name, model_data, clean, kept_labels, hp,
                                                        clamp=dropped)
@@ -155,6 +175,7 @@ def process_file_model(job):
                         if check_scores and not _same_scores(scores, ref):
                             row['error'] = 'score check failed'
                         else:
+                            row['clean_window'] = clean_int['window']
                             row['model_window'] = corr_int['window']
                             row.update(compare(model_name, clean_int, corr_int, can_compare_nn))
                             row['error'] = None
