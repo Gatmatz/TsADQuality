@@ -2,7 +2,7 @@
 Swap Corruption — Point Swap — TSB-AD version.
 
 Port of run_swap_point.py to the TSB-AD benchmark, built to mirror
-run_swap_permutation_tsb-ad.py step for step. Same corruption (randomly pick pairs of
+swap_permutation.py step for step. Same corruption (randomly pick pairs of
 points and swap their values) and same parameter grid, but evaluated with the OFFICIAL
 TSB-AD pipeline (run_Unsupervise_AD / run_Semisupervise_AD + find_length_rank + TSB_AD
 get_metrics) on the full 350-series TSB-AD-U eval list.
@@ -35,8 +35,8 @@ on small series. Note the two draw different *specific* pairs (they consume the 
 differently); what matches is the number of swapped points and the distribution.
 
 Usage:
-    python src/experiments/corruption/run_swap_point_tsb-ad.py --test
-    python src/experiments/corruption/run_swap_point_tsb-ad.py --models IForest --workers 4
+    python src/experiments/corruption_tsbad/swap_point.py --test
+    python src/experiments/corruption_tsbad/swap_point.py --models IForest --workers 4
 """
 import os
 

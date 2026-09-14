@@ -2,7 +2,7 @@
 Swap Corruption — Segment Swap — TSB-AD version.
 
 Port of run_swap_segment.py to the TSB-AD benchmark, built to mirror
-run_swap_point_tsb-ad.py step for step. Same corruption and same parameter grid, but
+swap_point.py step for step. Same corruption and same parameter grid, but
 evaluated with the OFFICIAL TSB-AD pipeline (run_Unsupervise_AD / run_Semisupervise_AD
 + find_length_rank + TSB_AD get_metrics) on the full 350-series TSB-AD-U eval list.
 
@@ -57,8 +57,8 @@ The shared injector is deliberately left untouched so previously produced TSB-UA
 stay reproducible. `--injector reference` runs the original path for cross-checking.
 
 Usage:
-    python src/experiments/corruption/run_swap_segment_tsbad.py --test
-    python src/experiments/corruption/run_swap_segment_tsbad.py --models IForest --workers 4
+    python src/experiments/corruption_tsbad/swap_segment.py --test
+    python src/experiments/corruption_tsbad/swap_segment.py --models IForest --workers 4
 """
 import os
 

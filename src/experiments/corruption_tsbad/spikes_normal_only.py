@@ -2,7 +2,7 @@
 Spike Corruption on NORMAL points only — TSB-AD version.
 
 Port of run_spikes_normal_only.py (the corrected methodology) to the TSB-AD benchmark,
-mirroring run_whitenoise_snr_tsbad.py step for step.
+mirroring white_noise_snr.py step for step.
 
 Why normal-only, quoting the original script:
   - Spikes landing on anomaly points artificially boost AUC — the model flags them
@@ -20,11 +20,11 @@ baseline exactly and the degradation curve starts from the right point.
 Key question: "How much do false spikes in normal data degrade anomaly detection?"
 
 Usage:
-    python src/experiments/corruption/run_spikes_normal_only_tsbad.py --test
-    python src/experiments/corruption/run_spikes_normal_only_tsbad.py --models IForest --workers 4
-    python src/experiments/corruption/run_spikes_normal_only_tsbad.py --models MatrixProfile --workers 4
+    python src/experiments/corruption_tsbad/spikes_normal_only.py --test
+    python src/experiments/corruption_tsbad/spikes_normal_only.py --models IForest --workers 4
+    python src/experiments/corruption_tsbad/spikes_normal_only.py --models MatrixProfile --workers 4
     # optional: also sweep burst spikes (still normal-only)
-    python src/experiments/corruption/run_spikes_normal_only_tsbad.py --models IForest --burst 3 10
+    python src/experiments/corruption_tsbad/spikes_normal_only.py --models IForest --burst 3 10
 """
 import os
 

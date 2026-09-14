@@ -2,7 +2,7 @@
 Missing Values — MCAR vs MNAR (burst version), TSB-AD version.
 
 Port of run_missing_mnar_burst.py to the TSB-AD benchmark, built on the same skeleton as
-run_missing_true_impact_tsbad.py.
+missing_true_impact.py.
 
 The question is about the MECHANISM of data loss, not its volume. Every condition removes the
 same `fraction` of points in the same number of contiguous blocks; only the RULE that picks
@@ -69,10 +69,10 @@ The finding is whatever damage EXCEEDS what the anomaly loss alone explains; the
 matched volume is what makes that separation possible.
 
 Usage:
-    python src/experiments/corrupt_tsb-ad/run_missing_mnar_burst_tsbad.py --test
-    python src/experiments/corrupt_tsb-ad/run_missing_mnar_burst_tsbad.py --models IForest --workers 4
+    python src/experiments/corruption_tsbad/missing_mnar_burst.py --test
+    python src/experiments/corruption_tsbad/missing_mnar_burst.py --models IForest --workers 4
     # the contrast at one fraction, if the full grid is too big:
-    python src/experiments/corrupt_tsb-ad/run_missing_mnar_burst_tsbad.py \
+    python src/experiments/corruption_tsbad/missing_mnar_burst.py \
         --models IForest --fractions 0.10 --workers 4
 """
 import os
@@ -227,7 +227,7 @@ def _select_burst_starts(values, n, burst_length, num_bursts, mechanism, rng):
 
 
 # ==========================================
-# MODELS (identical policy to run_missing_true_impact_tsbad.py)
+# MODELS (identical policy to missing_true_impact.py)
 # ==========================================
 def _get_hp(model_name):
     from TSB_AD.HP_list import Optimal_Uni_algo_HP_dict

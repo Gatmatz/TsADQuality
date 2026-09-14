@@ -2,7 +2,7 @@
 Swap Corruption — Segment Permutation — TSB-AD version.
 
 Port of run_swap_permutation.py to the TSB-AD benchmark, built to mirror
-run_spikes_tsbad.py step for step. Same corruption (split into N equal segments and
+spikes.py step for step. Same corruption (split into N equal segments and
 shuffle their order) and same parameter grid, but evaluated with the OFFICIAL TSB-AD
 pipeline (run_Unsupervise_AD / run_Semisupervise_AD + find_length_rank + TSB_AD
 get_metrics) on the full 350-series TSB-AD-U eval list.
@@ -24,9 +24,9 @@ Key question: "How much temporal reordering can anomaly detectors tolerate befor
               performance breaks down?"
 
 Usage:
-    python src/experiments/corruption/run_swap_permutation_tsb-ad.py --test
-    python src/experiments/corruption/run_swap_permutation_tsb-ad.py --models IForest --workers 4
-    python src/experiments/corruption/run_swap_permutation_tsb-ad.py --models MatrixProfile --workers 4
+    python src/experiments/corruption_tsbad/swap_permutation.py --test
+    python src/experiments/corruption_tsbad/swap_permutation.py --models IForest --workers 4
+    python src/experiments/corruption_tsbad/swap_permutation.py --models MatrixProfile --workers 4
 """
 import os
 

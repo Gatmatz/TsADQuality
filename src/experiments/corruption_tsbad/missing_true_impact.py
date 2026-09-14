@@ -2,7 +2,7 @@
 Missing Values — True Impact Experiment, TSB-AD version.
 
 Port of run_missing_true_impact.py to the TSB-AD benchmark, mirroring
-run_gilbert_elliott_true_impact_tsbad.py step for step.
+gilbert_elliott_true_impact.py step for step.
 
 Two missing patterns at MATCHED volume — this is the controlled contrast:
   - point : `fraction` of points dropped at random, scattered (MCAR).
@@ -12,7 +12,7 @@ Holding `fraction` fixed and varying `num_bursts` isolates the effect of HOW the
 loss is distributed from HOW MUCH is lost. num_bursts=1 is the most concentrated
 case, and the point condition is the fully dispersed limit.
 
-This is the non-bursty reference arm for run_gilbert_elliott_true_impact_tsbad.py,
+This is the non-bursty reference arm for gilbert_elliott_true_impact.py,
 which cannot separate volume from burstiness on its own (alpha and beta move both
 at once).
 
@@ -31,11 +31,11 @@ the official TSB-AD baseline and the degradation curve starts from the right poi
 Key question: "Does it matter HOW missing data is distributed, or only HOW MUCH?"
 
 Usage:
-    python src/experiments/corruption/run_missing_true_impact_tsbad.py --test
-    python src/experiments/corruption/run_missing_true_impact_tsbad.py --models IForest --workers 4
-    python src/experiments/corruption/run_missing_true_impact_tsbad.py --models MatrixProfile --workers 4
+    python src/experiments/corruption_tsbad/missing_true_impact.py --test
+    python src/experiments/corruption_tsbad/missing_true_impact.py --models IForest --workers 4
+    python src/experiments/corruption_tsbad/missing_true_impact.py --models MatrixProfile --workers 4
     # just the point/burst contrast at one fraction, if the full grid is too big:
-    python src/experiments/corruption/run_missing_true_impact_tsbad.py --models IForest --fractions 0.10
+    python src/experiments/corruption_tsbad/missing_true_impact.py --models IForest --fractions 0.10
 """
 import os
 

@@ -2,7 +2,7 @@
 Missing Values — MCAR vs MNAR (point version), TSB-AD version.
 
 Port of run_missing_mnar.py to the TSB-AD benchmark, built on the same skeleton as
-run_missing_mnar_burst_tsbad.py / run_missing_true_impact_tsbad.py.
+missing_mnar_burst.py / missing_true_impact.py.
 
 The question is about the MECHANISM of data loss, not its volume. Every condition removes
 exactly `int(fraction * n)` SCATTERED points; only the rule that picks which points changes:
@@ -11,7 +11,7 @@ exactly `int(fraction * n)` SCATTERED points; only the rule that picks which poi
     mnar_extreme  probability proportional to |z|                     (sensor overload)
     mnar_high     probability proportional to max(z, 0) + 0.01        (sensor caps out)
 
-This is the scattered counterpart of run_missing_mnar_burst_tsbad.py: same three mechanisms,
+This is the scattered counterpart of missing_mnar_burst.py: same three mechanisms,
 same fractions, but the loss is spread point-by-point instead of concentrated in blocks.
 Together the two scripts separate WHERE loss lands (mechanism) from HOW it clusters (burstiness).
 
@@ -67,10 +67,10 @@ The finding is whatever damage EXCEEDS what the anomaly loss alone explains; the
 matched volume is what makes that separation possible.
 
 Usage:
-    python src/experiments/corrupt_tsb-ad/run_missing_mnar_tsbad.py --test
-    python src/experiments/corrupt_tsb-ad/run_missing_mnar_tsbad.py --models IForest --workers 4
+    python src/experiments/corruption_tsbad/missing_mnar.py --test
+    python src/experiments/corruption_tsbad/missing_mnar.py --models IForest --workers 4
     # one fraction, if the full grid is too big:
-    python src/experiments/corrupt_tsb-ad/run_missing_mnar_tsbad.py \
+    python src/experiments/corruption_tsbad/missing_mnar.py \
         --models IForest --fractions 0.10 --workers 4
 """
 import os
@@ -197,7 +197,7 @@ def _select_missing_indices(values, fraction, mechanism, rng):
 
 
 # ==========================================
-# MODELS (identical policy to run_missing_mnar_burst_tsbad.py)
+# MODELS (identical policy to missing_mnar_burst.py)
 # ==========================================
 def _get_hp(model_name):
     from TSB_AD.HP_list import Optimal_Uni_algo_HP_dict

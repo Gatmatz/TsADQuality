@@ -1,8 +1,8 @@
 """
 Freeze (sensor-stuck) robustness experiment — TSB-AD version.
 
-Port of run_freeze.py to the TSB-AD benchmark, built to mirror run_spikes_tsbad.py /
-run_whitenoise_snr_tsbad.py step for step. Same corruption
+Port of run_freeze.py to the TSB-AD benchmark, built to mirror spikes.py /
+white_noise_snr.py step for step. Same corruption
 (ts_corruptor.inject_sensor_stuck) and the same parameter grid, but evaluated with the
 OFFICIAL TSB-AD pipeline (run_Unsupervise_AD / run_Semisupervise_AD + find_length_rank +
 TSB_AD get_metrics) on the full 350-series TSB-AD-U eval list.
@@ -23,9 +23,9 @@ Deliberate deviations from the TSB-UAD original (documented, not accidents):
     a metric.
 
 Usage:
-    python src/experiments/corruption/run_freeze_tsbad.py --test
-    python src/experiments/corruption/run_freeze_tsbad.py --models IForest --workers 4
-    python src/experiments/corruption/run_freeze_tsbad.py --models MatrixProfile --workers 4
+    python src/experiments/corruption_tsbad/freeze.py --test
+    python src/experiments/corruption_tsbad/freeze.py --models IForest --workers 4
+    python src/experiments/corruption_tsbad/freeze.py --models MatrixProfile --workers 4
 """
 import os
 

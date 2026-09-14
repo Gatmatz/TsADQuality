@@ -74,10 +74,10 @@ different experimental setup from the unsupervised models and the ratios are not
 comparable; the `train_overlaps_corruption` column flags the files where they do overlap.
 
 Usage:
-    python src/experiments/corruption/run_propagation_tsbad.py --test
-    python src/experiments/corruption/run_propagation_tsbad.py --models IForest --workers 4
+    python src/experiments/corruption_tsbad/propagation.py --test
+    python src/experiments/corruption_tsbad/propagation.py --models IForest --workers 4
     # the hypothesis needs the contrast, so the interesting run is the spread:
-    python src/experiments/corruption/run_propagation_tsbad.py \
+    python src/experiments/corruption_tsbad/propagation.py \
         --models IForest Sub_PCA Sub_LOF MatrixProfile --workers 4
 """
 import os

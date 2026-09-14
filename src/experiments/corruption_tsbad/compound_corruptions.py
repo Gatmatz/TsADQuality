@@ -2,7 +2,7 @@
 Compound Corruptions — Multiple Simultaneous Data Quality Issues, TSB-AD version.
 
 Port of run_compound_corruptions.py to the TSB-AD benchmark, built on the same
-skeleton as run_missing_true_impact_tsbad.py / run_freeze_tsbad.py.
+skeleton as missing_true_impact.py / freeze.py.
 
 Question: when several data quality problems hit the same series at once, is the
 damage the SUM of the individual damages, or more (synergistic) / less
@@ -60,13 +60,13 @@ DELIBERATE DEVIATIONS from the TSB-UAD original — all documented, none acciden
      the original would have produced is still produced identically.
 
 Usage:
-    python src/experiments/corruption/run_compound_corruptions_tsbad.py --test
-    python src/experiments/corruption/run_compound_corruptions_tsbad.py --models IForest --workers 4
+    python src/experiments/corruption_tsbad/compound_corruptions.py --test
+    python src/experiments/corruption_tsbad/compound_corruptions.py --models IForest --workers 4
     # the grid is large — start with one pair to size the run:
-    python src/experiments/corruption/run_compound_corruptions_tsbad.py \
+    python src/experiments/corruption_tsbad/compound_corruptions.py \
         --models IForest --combinations noise_missing
     # or run on a smaller validated file list:
-    python src/experiments/corruption/run_compound_corruptions_tsbad.py \
+    python src/experiments/corruption_tsbad/compound_corruptions.py \
         --models IForest --files-csv results/tables/representative_subset_tsb_ad_vuspr_n200.csv
 """
 import os
@@ -288,7 +288,7 @@ def apply_corruptions(corruptor, condition, series_length):
         elif ctype == 'spikes':
             ts_corruptor.injectors.inject_spikes(corruptor, **params)
         elif ctype == 'freeze':
-            # Same dynamic block length as run_freeze.py / run_freeze_tsbad.py: the requested
+            # Same dynamic block length as run_freeze.py / freeze.py: the requested
             # fraction of the series split evenly across num_stucks frozen blocks.
             freeze_frac = params.pop('freeze_fraction')
             num_stucks = params['num_stucks']

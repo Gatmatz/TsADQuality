@@ -2,7 +2,7 @@
 Gilbert-Elliott Channel Model — True Impact Experiment, TSB-AD version.
 
 Port of run_gilbert_elliott_true_impact.py to the TSB-AD benchmark, mirroring
-run_whitenoise_snr_tsbad.py / run_spikes_normal_only_tsbad.py step for step.
+white_noise_snr.py / spikes_normal_only.py step for step.
 
 Gilbert-Elliott model (2-state Markov chain over the series):
   - Good state: no corruption.  Bad state: the point is dropped (set to NaN).
@@ -28,9 +28,9 @@ Key question: "How do bursty missing patterns (vs random missing) affect
                anomaly detection?"
 
 Usage:
-    python src/experiments/corruption/run_gilbert_elliott_true_impact_tsbad.py --test
-    python src/experiments/corruption/run_gilbert_elliott_true_impact_tsbad.py --models IForest --workers 4
-    python src/experiments/corruption/run_gilbert_elliott_true_impact_tsbad.py --models MatrixProfile --workers 4
+    python src/experiments/corruption_tsbad/gilbert_elliott_true_impact.py --test
+    python src/experiments/corruption_tsbad/gilbert_elliott_true_impact.py --models IForest --workers 4
+    python src/experiments/corruption_tsbad/gilbert_elliott_true_impact.py --models MatrixProfile --workers 4
 """
 import os
 

@@ -8,9 +8,9 @@ OFFICIAL TSB-AD pipeline (run_Unsupervise_AD / run_Semisupervise_AD + find_lengt
 baseline setup, so clean-vs-corrupted is directly comparable.
 
 Usage:
-    python src/experiments/corruption/run_whitenoise_snr_tsbad.py --test
-    python src/experiments/corruption/run_whitenoise_snr_tsbad.py --models IForest
-    python src/experiments/corruption/run_whitenoise_snr_tsbad.py --models IForest Sub_PCA POLY KShapeAD KMeansAD_U --workers 8
+    python src/experiments/corruption_tsbad/white_noise_snr.py --test
+    python src/experiments/corruption_tsbad/white_noise_snr.py --models IForest
+    python src/experiments/corruption_tsbad/white_noise_snr.py --models IForest Sub_PCA POLY KShapeAD KMeansAD_U --workers 8
 """
 import os
 

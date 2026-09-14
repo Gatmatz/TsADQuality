@@ -1,10 +1,10 @@
-# Segment Swap: `run_swap_segment_tsbad.py` vs `run_swap_segment.py`
+# Segment Swap: `swap_segment.py` vs `run_swap_segment.py`
 
 What changed when the segment-swap experiment was ported from TSB-UAD to TSB-AD, why,
 and what it means for results already produced with the old script.
 
 Date: 2026-09-03. Scripts: `run_swap_segment.py` (old, TSB-UAD) →
-`run_swap_segment_tsbad.py` (new, TSB-AD).
+`swap_segment.py` (new, TSB-AD).
 
 ---
 
@@ -31,8 +31,8 @@ corruption is a permutation of the original samples).
 
 ## 2. Port-level differences (shared with the other two TSB-AD ports)
 
-These are the same changes already made in `run_swap_permutation_tsb-ad.py` and
-`run_swap_point_tsb-ad.py`, listed here for completeness.
+These are the same changes already made in `swap_permutation.py` and
+`swap_point.py`, listed here for completeness.
 
 | | Old (TSB-UAD) | New (TSB-AD) |
 | --- | --- | --- |
@@ -236,10 +236,10 @@ detector, only the series lengths.
 
 ```bash
 # smoke test: 3 files, 4 conditions + clean anchor
-python src/experiments/corruption/run_swap_segment_tsbad.py --test
+python src/experiments/corruption_tsbad/swap_segment.py --test
 
 # full run
-python src/experiments/corruption/run_swap_segment_tsbad.py --models IForest --workers 4
+python src/experiments/corruption_tsbad/swap_segment.py --models IForest --workers 4
 ```
 
 350 files × 26 conditions (25 + clean) = **9 100 jobs per model**. Checkpoint/resume is per

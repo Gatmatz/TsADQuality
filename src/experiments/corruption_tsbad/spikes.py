@@ -1,7 +1,7 @@
 """
 Spike-error robustness experiment — TSB-AD version.
 
-Port of run_spikes.py to the TSB-AD benchmark, built to mirror run_whitenoise_snr_tsbad.py
+Port of run_spikes.py to the TSB-AD benchmark, built to mirror white_noise_snr.py
 step for step. Same corruption (ts_corruptor.inject_spikes) and same parameter grid, but
 evaluated with the OFFICIAL TSB-AD pipeline (run_Unsupervise_AD / run_Semisupervise_AD +
 find_length_rank + TSB_AD get_metrics) on the full 350-series TSB-AD-U eval list.
@@ -10,9 +10,9 @@ A `clean` anchor condition runs the identical pipeline with no corruption, so it
 the TSB-AD baseline exactly and the degradation curve starts from the right point.
 
 Usage:
-    python src/experiments/corruption/run_spikes_tsbad.py --test
-    python src/experiments/corruption/run_spikes_tsbad.py --models IForest --workers 4
-    python src/experiments/corruption/run_spikes_tsbad.py --models MatrixProfile --workers 4
+    python src/experiments/corruption_tsbad/spikes.py --test
+    python src/experiments/corruption_tsbad/spikes.py --models IForest --workers 4
+    python src/experiments/corruption_tsbad/spikes.py --models MatrixProfile --workers 4
 """
 import os
 
