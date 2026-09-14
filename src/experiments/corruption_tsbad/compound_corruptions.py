@@ -82,6 +82,16 @@ DELIBERATE DEVIATIONS from the TSB-UAD original — all documented, none acciden
      headline metric), one set of files per metric (interaction_analysis_<metric>.csv ...).
      Columns keep the original names (baseline_auc, auc_A, ...) for every metric; a leading
      `metric` column says which score they hold.
+  7. Uncertainty and saturation are ADDED next to the original columns, which stay as they
+     were. The original labelled interactions with a fixed +-0.01 dead zone on means from
+     one seed; here each row also carries a 95% bootstrap interval over series
+     (interaction_ci_low/high, shapley_ci_low/high) and interaction_type_ci, which only says
+     synergistic / sub-additive when the interval excludes zero ('n/a' below MIN_SERIES_CI
+     series, e.g. in --test). The metric is bounded: once
+     the singles have taken a series close to a no-information detector, the compound
+     cannot lose the full sum of their drops, so sub-additivity at high severities is partly
+     mechanical. predicted_below_chance (on the means) and frac_series_below_chance (per
+     series) flag rows whose additive prediction clean - sum(drops) is below CHANCE_LEVEL.
 
 Usage:
     python src/experiments/corruption_tsbad/compound_corruptions.py --test
@@ -105,6 +115,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import tsbad.env  # noqa: E402,F401  thread caps — must come before numpy
 
+import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
 import ts_corruptor.injectors  # noqa: E402
@@ -123,6 +134,21 @@ N_SEEDS = 1
 CORRUPTION_TARGET = 'global'
 # ...except spikes, which only land on normal points (deviation 5), as in spikes_normal_only.
 SPIKES_TARGET = 'only_normal'
+
+# Interaction / Shapley uncertainty: 95% percentile bootstrap over series, one fixed seed per row
+# so a row's interval does not depend on which other rows or models are in the table.
+N_BOOTSTRAP = 2000
+BOOTSTRAP_SEED = 0
+# Below this many series a resampling interval is not informative (2 series give 3 possible
+# means); the interval is left empty and interaction_type_ci reads 'n/a'.
+MIN_SERIES_CI = 10
+
+# Score of a detector with no information. When the additive prediction clean - sum(drops) falls
+# below it, the compound cannot lose all the predicted damage, so 'sub-additive' there is partly
+# mechanical (deviation 7). ROC-type metrics: 0.5. Any other metric: its lower bound 0, since its
+# chance level depends on each series' anomaly rate — the flag then only catches predictions that
+# are impossible outright.
+CHANCE_LEVEL = {'AUC_ROC': 0.5, 'VUS_ROC': 0.5}
 
 # Severity levels per corruption type — byte-identical to the original.
 # Noise carries a fourth 'extreme' level (0 dB) that the others do not.
@@ -364,6 +390,34 @@ def _common_series(table, conditions):
     return common, int(terms.notna().any(axis=1).sum()) - len(common)
 
 
+def _bootstrap_ci(per_series):
+    """95% percentile bootstrap interval of the mean over series (series are resampled)."""
+    x = np.asarray(per_series, dtype=float)
+    if len(x) < MIN_SERIES_CI:
+        return float('nan'), float('nan')
+    rng = np.random.default_rng(BOOTSTRAP_SEED)
+    means = x[rng.integers(0, len(x), size=(N_BOOTSTRAP, len(x)))].mean(axis=1)
+    low, high = np.percentile(means, [2.5, 97.5])
+    return float(low), float(high)
+
+
+def _classify_ci(low, high):
+    """Label only what the series support: the whole interval above zero is synergistic, below
+    zero sub-additive, anything that includes zero is not distinguishable from additive.
+
+    The tolerance keeps float residue (an exactly additive row computes as ~1e-17 on every
+    series, so its whole interval sits just off zero) from being read as a direction.
+    """
+    tol = 1e-9
+    if np.isnan(low):
+        return 'n/a'
+    if low > tol:
+        return 'synergistic'
+    if high < -tol:
+        return 'sub-additive'
+    return 'additive'
+
+
 def _report_excluded(df, label):
     short = df[df['n_series_excluded'] > 0]
     if not short.empty:
@@ -381,6 +435,12 @@ def compute_interaction_analysis(df_results, output_dir, metric='AUC_ROC'):
     A positive interaction means the corruptions hurt each other's detectability more than
     their separate damages would suggest. Every term is a mean over the same series: those
     that have the clean anchor, every single and the compound (n_series).
+
+    The same equation per series gives a per-series interaction whose mean is `interaction`;
+    resampling series gives its 95% interval and interaction_type_ci, which — unlike the
+    +-0.01 interaction_type — only calls a row synergistic or sub-additive when the interval
+    excludes zero. predicted_below_chance / frac_series_below_chance mark saturation: the
+    additive prediction clean - sum(drops) is below CHANCE_LEVEL on the means / per series.
     """
     if metric not in df_results.columns:
         print(f"[Interaction] metric {metric} not in results — skipping.")
@@ -394,6 +454,7 @@ def compute_interaction_analysis(df_results, output_dir, metric='AUC_ROC'):
     if not any('clean' in t.columns for t in tables.values()):
         print("[Interaction] no clean baseline found — skipping.")
         return
+    chance = CHANCE_LEVEL.get(metric, 0.0)
 
     rows = []
     for combo_name, ctypes in COMBINATIONS:
@@ -418,6 +479,11 @@ def compute_interaction_analysis(df_results, output_dir, metric='AUC_ROC'):
                 interaction = drop_compound - predicted
                 pct = (interaction / predicted * 100) if abs(predicted) > 1e-6 else 0.0
 
+                predicted_f = sum(common['clean'] - common[s] for s in singles)
+                interaction_f = (common['clean'] - common[compound_name]) - predicted_f
+                ci_low, ci_high = _bootstrap_ci(interaction_f)
+                below_chance_f = (common['clean'] - predicted_f) < chance
+
                 row = {'combination_name': combo_name,
                        'condition': compound_name,
                        'n_corruptions': len(tags),
@@ -429,6 +495,12 @@ def compute_interaction_analysis(df_results, output_dir, metric='AUC_ROC'):
                        'interaction': round(interaction, 4),
                        'interaction_pct': round(pct, 1),
                        'interaction_type': _classify(interaction),
+                       'interaction_ci_low': round(ci_low, 4),
+                       'interaction_ci_high': round(ci_high, 4),
+                       'interaction_type_ci': _classify_ci(ci_low, ci_high),
+                       'chance_level': chance,
+                       'predicted_below_chance': bool(bl - predicted < chance),
+                       'frac_series_below_chance': round(float(below_chance_f.mean()), 3),
                        'n_series': len(common),
                        'n_series_excluded': n_excluded}
                 for i, (t, a, d) in enumerate(zip(tags, auc_singles, drops)):
@@ -455,17 +527,25 @@ def compute_interaction_analysis(df_results, output_dir, metric='AUC_ROC'):
         n_synergistic=('interaction_type', lambda x: (x == 'synergistic').sum()),
         n_additive=('interaction_type', lambda x: (x == 'additive').sum()),
         n_subadditive=('interaction_type', lambda x: (x == 'sub-additive').sum()),
+        n_synergistic_ci=('interaction_type_ci', lambda x: (x == 'synergistic').sum()),
+        n_additive_ci=('interaction_type_ci', lambda x: (x == 'additive').sum()),
+        n_subadditive_ci=('interaction_type_ci', lambda x: (x == 'sub-additive').sum()),
+        n_predicted_below_chance=('predicted_below_chance', 'sum'),
         min_n_series=('n_series', 'min'),
     ).reset_index()
     summary.insert(0, 'metric', metric)
     summary.to_csv(os.path.join(output_dir, f"interaction_summary_{metric}.csv"), index=False)
 
     print(f"\n=== Interaction summary ({metric}) ===")
-    print(f"{'Combination':<24} {'Model':<14} {'mean int':>10} {'syn':>5} {'add':>5} {'sub':>5}")
-    print("-" * 68)
+    print("(syn/add/sub: +-0.01 rule; *_ci: 95% interval; <chance: saturated additive prediction)")
+    print(f"{'Combination':<24} {'Model':<14} {'mean int':>10} {'syn':>5} {'add':>5} {'sub':>5} "
+          f"{'syn_ci':>7} {'add_ci':>7} {'sub_ci':>7} {'<chance':>8}")
+    print("-" * 101)
     for _, r in summary.sort_values(['model', 'mean_interaction'], ascending=[True, False]).iterrows():
         print(f"{r['combination_name']:<24} {r['model']:<14} {r['mean_interaction']:>+10.4f} "
-              f"{int(r['n_synergistic']):>5} {int(r['n_additive']):>5} {int(r['n_subadditive']):>5}")
+              f"{int(r['n_synergistic']):>5} {int(r['n_additive']):>5} {int(r['n_subadditive']):>5} "
+              f"{int(r['n_synergistic_ci']):>7} {int(r['n_additive_ci']):>7} "
+              f"{int(r['n_subadditive_ci']):>7} {int(r['n_predicted_below_chance']):>8}")
 
 
 # ==========================================
@@ -479,7 +559,9 @@ def compute_shapley_analysis(df_results, output_dir, metric='AUC_ROC'):
     answering the practical question: which problem should you fix FIRST for the biggest
     recovery? Needs the baseline, all 3 singles, all 3 pairs and the triple — every one of
     which this script produces, so no cross-experiment lookup can go stale. All 8 coalition
-    means are taken over the same series (n_series).
+    means are taken over the same series (n_series). Shapley values are linear in the
+    coalition scores, so the same formula per series averages to shapley_value; resampling
+    series gives shapley_ci_low / shapley_ci_high.
     """
     if metric not in df_results.columns:
         return
@@ -520,13 +602,15 @@ def compute_shapley_analysis(df_results, output_dir, metric='AUC_ROC'):
             aucs = {coalition: common[cond_name].mean()
                     for coalition, cond_name in conditions.items()}
 
-            # Damage function v(S) = AUC(clean) - AUC(S)
+            # Damage function v(S) = AUC(clean) - AUC(S), on the means and per series
             v = {s: aucs[frozenset()] - a for s, a in aucs.items()}
+            v_f = {coalition: (common['clean'] - common[cond_name]).to_numpy()
+                   for coalition, cond_name in conditions.items()}
             total_damage = v[frozenset(players)]
 
             for corr in players:
                 others = [c for c in players if c != corr]
-                shapley = 0.0
+                shapley, shapley_f = 0.0, 0.0
                 for size in range(len(others) + 1):
                     for subset in itertools.combinations(others, size):
                         s = frozenset(subset)
@@ -535,6 +619,8 @@ def compute_shapley_analysis(df_results, output_dir, metric='AUC_ROC'):
                                   * math.factorial(n_players - len(s) - 1)
                                   / math.factorial(n_players))
                         shapley += weight * marginal
+                        shapley_f = shapley_f + weight * (v_f[s | {corr}] - v_f[s])
+                ci_low, ci_high = _bootstrap_ci(shapley_f)
 
                 # Recovery: what you gain by removing just this corruption from the triple
                 recovery = aucs[frozenset(players) - {corr}] - aucs[frozenset(players)]
@@ -547,6 +633,8 @@ def compute_shapley_analysis(df_results, output_dir, metric='AUC_ROC'):
                     'corruption': corr,
                     'corruption_severity': sevs[corr],
                     'shapley_value': round(shapley, 4),
+                    'shapley_ci_low': round(ci_low, 4),
+                    'shapley_ci_high': round(ci_high, 4),
                     'recovery_if_fixed': round(recovery, 4),
                     'total_damage': round(total_damage, 4),
                     'shapley_pct': (round(shapley / total_damage * 100, 1)
@@ -569,6 +657,7 @@ def compute_shapley_analysis(df_results, output_dir, metric='AUC_ROC'):
         mean_shapley=('shapley_value', 'mean'),
         mean_recovery=('recovery_if_fixed', 'mean'),
         mean_pct=('shapley_pct', 'mean'),
+        n_ci_above_zero=('shapley_ci_low', lambda x: (x > 0).sum()),
         min_n_series=('n_series', 'min'),
     ).reset_index()
     summary.insert(0, 'metric', metric)

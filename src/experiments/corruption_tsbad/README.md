@@ -49,6 +49,9 @@ deviation 5 in the module docstring. Interaction and Shapley are written per met
 Each interaction/Shapley row averages its terms over the series all of them have (`n_series`;
 `n_series_excluded` counts the ones left out), so it can be recomputed with `--summary-only` at
 any point — after more combinations or singles are run — without mixing different series.
+Next to the original columns, each row carries a 95% bootstrap interval over series
+(`interaction_type_ci` only labels a row synergistic/sub-additive when it excludes zero) and a
+saturation flag (`predicted_below_chance`, `frac_series_below_chance`): see deviation 7.
 
 TSB-UAD experiments with **no** TSB-AD version yet: `run_noise_position.py`,
 `run_anomaly_aware_corruption.py`, `run_gradual_drift.py`, `run_propagation_multiscale.py`,
