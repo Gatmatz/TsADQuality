@@ -3,7 +3,6 @@ from typing import Any, Self
 
 from tsadquality.enums.data import CorruptionType, DataPerfectness
 from tsadquality.enums.detectors import DetectorModel
-from tsadquality.enums.evaluators import EvaluationMethod
 from tsadquality.logging.logging import get_logger
 
 LOG = get_logger(__file__)
@@ -16,6 +15,19 @@ class Experiment:
     _NULL: str = "NULL"
     _value_col: str = "Data"
     _label_col: str = "Label"
+
+    # Maps TSB_AD.evaluation.metrics.get_metrics() keys to `evaluations` table columns.
+    _METRIC_COLUMNS: dict[str, str] = {
+        "AUC-PR": "auc_pr",
+        "AUC-ROC": "auc_roc",
+        "VUS-PR": "vus_pr",
+        "VUS-ROC": "vus_roc",
+        "Standard-F1": "standard_f1",
+        "PA-F1": "pa_f1",
+        "Event-based-F1": "event_based_f1",
+        "R-based-F1": "r_based_f1",
+        "Affiliation-F": "affiliation_f",
+    }
 
     # Fixed positions for corruption params in the experiment id, matching the
     # column order of the `experiments` table in postgres/init.sql. A field not
@@ -52,7 +64,6 @@ class Experiment:
         corruption_type: CorruptionType | None = None,
         corruption_params: dict[str, Any] | None = None,
         data_perfectness: DataPerfectness = DataPerfectness.PERFECT,
-        evaluation_methods: list[EvaluationMethod] | None = None,
         options: dict[Any, Any] | None = None,
     ):
         self.timeseries = timeseries
@@ -60,7 +71,6 @@ class Experiment:
         self.corruption_type = corruption_type
         self.corruption_params = corruption_params
         self.data_perfectness = data_perfectness
-        self.evaluation_methods = evaluation_methods
         self.options = options
 
         self._should_compute = not self._exists_in_postgres()
@@ -101,10 +111,11 @@ class Experiment:
         values = df[self._value_col].to_numpy(dtype=float)
 
         window = self._window_length()
+        periodicity = self._periodicity()
         values = self._z_score(values)
 
         detector_instance = ReproducibleOperations.get_detector(
-            self.detector, window=window, **(self.options or {})
+            self.detector, window=window, periodicity=periodicity, **(self.options or {})
         )
 
         start = perf_counter()
@@ -128,47 +139,75 @@ class Experiment:
         )
         LOG.info(f"Successfully wrote the metadata of experiment {self!s} to Postgres.")
 
-        # Evaluate the detector's decision scores against the ground-truth labels
-        # with every requested evaluation method, and record each score.
+        # Evaluate the detector's decision scores against the ground-truth labels.
+        # TSB-AD's get_metrics() computes AUC-PR/ROC, VUS-PR/ROC and the
+        # threshold-dependent F1 variants together from shared intermediate work.
+        # The threshold-dependent variants are scored against a real, deployable
+        # threshold (mu +/- 3*sigma on the min-max-normalized scores) rather than
+        # get_metrics()'s default oracle/best-F1 threshold; we also keep that
+        # threshold's own precision as `precision_3sigma`.
         y_true = df[self._label_col].to_numpy()
-        for evaluation_method in self.evaluation_methods or []:
-            eval_start = perf_counter()
-            score = evaluation_method.get_class().evaluate(
-                y_true=y_true, decision_scores=self.decision_scores_
-            )
-            eval_execution_time = perf_counter() - eval_start
+        eval_start = perf_counter()
 
-            PostgresClient.write_evaluation(
-                experiment_id=str(self),
-                dataset_name=self.timeseries,
-                random_seed=str(ReproducibleOperations.get_current_random_seed()),
-                data_perfectness=str(self.data_perfectness),
-                corruption_type=str(self.corruption_type) if self.corruption_type else None,
-                detector=str(self.detector),
-                metric=str(evaluation_method),
-                score=score,
-                execution_time=eval_execution_time,
-            )
-            LOG.info(
-                f"Wrote evaluation '{evaluation_method!s}'={score} for experiment {self!s} to Postgres."
-            )
+        from sklearn.metrics import precision_score
+        from sklearn.preprocessing import MinMaxScaler
+        from TSB_AD.evaluation.metrics import get_metrics
+
+        self.decision_scores_ = (
+            MinMaxScaler(feature_range=(0, 1))
+            .fit_transform(self.decision_scores_.reshape(-1, 1))
+            .ravel()
+        )
+        pred = self.decision_scores_ > (
+            self.decision_scores_.mean() + 3 * self.decision_scores_.std()
+        )
+
+        raw_metrics = get_metrics(
+            self.decision_scores_, y_true, slidingWindow=window, pred=pred
+        )
+        metrics = {
+            self._METRIC_COLUMNS[name]: float(value) for name, value in raw_metrics.items()
+        }
+        metrics["precision_3sigma"] = float(
+            precision_score(y_true, pred.astype(int), zero_division=0)
+        )
+
+        eval_execution_time = perf_counter() - eval_start
+
+        PostgresClient.write_evaluation(
+            experiment_id=str(self),
+            dataset_name=self.timeseries,
+            random_seed=str(ReproducibleOperations.get_current_random_seed()),
+            data_perfectness=str(self.data_perfectness),
+            corruption_type=str(self.corruption_type) if self.corruption_type else None,
+            detector=str(self.detector),
+            metrics=metrics,
+            execution_time=eval_execution_time,
+        )
+        LOG.info(f"Wrote evaluation {metrics} for experiment {self!s} to Postgres.")
 
     def _timeseries_path(self) -> Path:
         return _PROJECT_ROOT / "data" / "TSB-AD-U" / f"{self.timeseries}.csv"
 
-    def _window_length(self) -> int:
+    def _ts_metadata(self) -> "pd.Series":
         from tsadquality.data.clients.PostgresClient import PostgresClient
 
         escaped_timeseries = self.timeseries.replace("'", "''")
         result = PostgresClient.query(
-            f"SELECT window_length FROM window_lengths WHERE dataset = '{escaped_timeseries}'"
+            f"SELECT window_length, periodicity FROM ts_metadata WHERE dataset = '{escaped_timeseries}'"
         )
         if result.empty:
             raise ValueError(
-                f"No precomputed window length found for timeseries '{self.timeseries}'. "
-                "Run `python -m tsadquality.utils.window_table` first."
+                f"No precomputed metadata found for timeseries '{self.timeseries}'. "
+                "Run `python -m tsadquality.utils.ts_metadata_table` first."
             )
-        return int(result.iloc[0]["window_length"])
+        return result.iloc[0]
+
+    def _window_length(self) -> int:
+        return int(self._ts_metadata()["window_length"])
+
+    def _periodicity(self) -> int:
+        return 1
 
     @staticmethod
     def _z_score(values):

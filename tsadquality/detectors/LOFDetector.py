@@ -1,19 +1,27 @@
-from TSB_UAD.models.feature import Window
-from TSB_UAD.models.lof import LOF
+import numpy as np
+from TSB_AD.model_wrapper import run_Unsupervise_AD
 
 from tsadquality.detectors.BaseDetector import BaseDetector
 
 
 class LOFDetector(BaseDetector):
-    """Wraps tsb-uad's sliding-window Local Outlier Factor detector."""
+    """Wraps TSB-AD's `run_Unsupervise_AD('LOF', ...)`."""
 
-    def __init__(self, window=100, n_neighbors=20, contamination=0.1):
-        super().__init__(window=window)
+    def __init__(self, window=100, n_neighbors=20, metric="minkowski", n_jobs=1):
+        super().__init__()
+        self.window = window
         self.n_neighbors = n_neighbors
-        self.contamination = contamination
+        self.metric = metric
+        self.n_jobs = n_jobs
 
-    def _raw_scores(self, X):
-        subsequences = Window(window=self.window).convert(X).to_numpy()
-        model = LOF(n_neighbors=self.n_neighbors, contamination=self.contamination)
-        model.fit(subsequences)
-        return model.decision_scores_
+    def fit(self, X):
+        data = np.asarray(X, dtype=float).reshape(-1, 1)
+        self.decision_scores_ = run_Unsupervise_AD(
+            "LOF",
+            data,
+            slidingWindow=self.window,
+            n_neighbors=self.n_neighbors,
+            metric=self.metric,
+            n_jobs=self.n_jobs,
+        )
+        return self

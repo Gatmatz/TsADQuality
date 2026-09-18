@@ -75,11 +75,11 @@ if SHARD_COUNT > 1:
     LOG.info(f"Running as shard {SHARD_INDEX}/{SHARD_COUNT}.")
 
 experimental_params = get_experimental_params()
-evaluation_methods = experimental_params.get("evaluation_methods")
 
 # First, generate all perfect data
 for random_seed in experimental_params.get("random_seeds"):
     ReproducibleOperations.set_random_seed(random_seed)
+    ReproducibleOperations.seed_everything()
     for ts_name in experimental_params.get("ts_names"):
         for detector in experimental_params.get("detectors"):
             if not _in_shard(
@@ -96,7 +96,6 @@ for random_seed in experimental_params.get("random_seeds"):
                     detector=detector,
                     corruption_type=None,
                     data_perfectness=DataPerfectness.PERFECT,  # only perfect data at first
-                    evaluation_methods=evaluation_methods,
                 )
 
                 experiment.run()  # force-compute the regression datasets
@@ -116,44 +115,41 @@ for random_seed in experimental_params.get("random_seeds"):
 corruption_settings = experimental_params.get("corruption_settings")
 for random_seed in experimental_params.get("random_seeds"):
     ReproducibleOperations.set_random_seed(random_seed)
+    ReproducibleOperations.seed_everything()
     for ts_name in experimental_params.get("ts_names"):
         for detector in experimental_params.get("detectors"):
             for corruption_type in experimental_params.get("corruption_types"):
                 for corruption_params in _corruption_param_combinations(
                     corruption_settings, corruption_type
                 ):
-                    for perfectness_level in experimental_params.get(
-                        "data_perfectness_levels"
+                    if not _in_shard(
+                        [
+                            random_seed,
+                            ts_name,
+                            str(DataPerfectness.IMPERFECT),
+                            str(corruption_type),
+                            corruption_params,
+                            str(detector),
+                        ],
+                        SHARD_INDEX,
+                        SHARD_COUNT,
                     ):
-                        if not _in_shard(
-                            [
-                                random_seed,
-                                ts_name,
-                                str(perfectness_level),
-                                str(corruption_type),
-                                corruption_params,
-                                str(detector),
-                            ],
-                            SHARD_INDEX,
-                            SHARD_COUNT,
-                        ):
-                            continue
+                        continue
 
-                        experiment = None
-                        try:
-                            experiment = Experiment(
-                                timeseries=ts_name,
-                                detector=detector,
-                                corruption_type=corruption_type,
-                                corruption_params=corruption_params,
-                                data_perfectness=perfectness_level,
-                                evaluation_methods=evaluation_methods,
-                            )
-                            experiment.run()
+                    experiment = None
+                    try:
+                        experiment = Experiment(
+                            timeseries=ts_name,
+                            detector=detector,
+                            corruption_type=corruption_type,
+                            corruption_params=corruption_params,
+                            data_perfectness=DataPerfectness.IMPERFECT,
+                        )
+                        experiment.run()
 
-                        except Exception as e:
-                            LOG.error(
-                                f"The experiment failed but I will continue to the next one. Error: {e}",
-                                extra={"experiment_id": str(experiment)},
-                            )
-                            continue
+                    except Exception as e:
+                        LOG.error(
+                            f"The experiment failed but I will continue to the next one. Error: {e}",
+                            extra={"experiment_id": str(experiment)},
+                        )
+                        continue

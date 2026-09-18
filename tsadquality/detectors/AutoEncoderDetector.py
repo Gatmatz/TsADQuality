@@ -1,24 +1,31 @@
-from TSB_UAD.models.AE import AE_MLP2
+import numpy as np
+from TSB_AD.model_wrapper import run_Semisupervise_AD
 
 from tsadquality.detectors.BaseDetector import BaseDetector
 
 
 class AutoEncoderDetector(BaseDetector):
-    """
-    Wraps tsb-uad's AE_MLP2 autoencoder detector.
+    """Wraps TSB-AD's `run_Semisupervise_AD('AutoEncoder', ...)`.
 
-    Unlike the other wrappers, AE_MLP2 already aligns its output to the full
-    series length internally, so `fit()` is overridden instead of going
-    through `BaseDetector`'s subsequence padding.
+    TSB-AD only ships a semisupervised AutoEncoder (fit on `data_train`, scored
+    on `data_test`); we fit and score on the same series (train == test) to
+    match this package's other, purely unsupervised detectors.
     """
 
-    def __init__(self, window=100, epochs=10, verbose=0):
-        super().__init__(window=window)
-        self.epochs = epochs
-        self.verbose = verbose
+    def __init__(self, window=100, hidden_neurons=None, n_jobs=1):
+        super().__init__()
+        self.window = window
+        self.hidden_neurons = hidden_neurons or [64, 32]
+        self.n_jobs = n_jobs
 
     def fit(self, X):
-        model = AE_MLP2(slidingWindow=self.window, epochs=self.epochs, verbose=self.verbose)
-        model.fit(X, X)
-        self.decision_scores_ = model.decision_scores_
+        data = np.asarray(X, dtype=float).reshape(-1, 1)
+        self.decision_scores_ = run_Semisupervise_AD(
+            "AutoEncoder",
+            data,
+            data,
+            window_size=self.window,
+            hidden_neurons=self.hidden_neurons,
+            n_jobs=self.n_jobs,
+        )
         return self

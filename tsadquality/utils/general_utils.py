@@ -17,9 +17,8 @@ def get_experimental_params() -> dict[str, Any]:
     from pathlib import Path
     from pprint import pp
 
-    from tsadquality.enums.data import CorruptionType, DataPerfectness
+    from tsadquality.enums.data import CorruptionType
     from tsadquality.enums.detectors import DETECTORS
-    from tsadquality.enums.evaluators import EvaluationMethod
     from tsadquality.environment import RANDOM_SEEDS
     from tsadquality.environment.corruption import CORRUPTION_SETTINGS
 
@@ -28,6 +27,11 @@ def get_experimental_params() -> dict[str, Any]:
         csv_path.stem for csv_path in sorted((project_root / "data" / "TSB-AD-U").glob("*.csv"))
     ]
     # ts_names = [name for name in ts_names if name == "001_NAB_id_1_Facility_tr_1007_1st_2014"]
+
+    eva_list_path = Path(__file__).resolve().parents[1] / "data" / "TSB-AD-U-Eva.csv"
+    with eva_list_path.open() as f:
+        eva_names = {Path(line.strip()).stem for line in f.readlines()[1:] if line.strip()}
+    ts_names = [name for name in ts_names if name in eva_names]
 
     random_seeds = copy.deepcopy(RANDOM_SEEDS)
 
@@ -55,16 +59,6 @@ def get_experimental_params() -> dict[str, Any]:
     pp(f"{corruption_types=}", compact=True)
     print()
 
-    data_perfectness_levels = [DataPerfectness.PERFECT, DataPerfectness.IMPERFECT]
-    shuffle_rng.shuffle(data_perfectness_levels)
-    pp(f"{data_perfectness_levels=}", compact=True)
-    print()
-
-    evaluation_methods = list(EvaluationMethod)
-    shuffle_rng.shuffle(evaluation_methods)
-    pp(f"{evaluation_methods=}", compact=True)
-    print()
-
     corruption_settings = {
         str(corruption_type): dict(params)
         for corruption_type, params in CORRUPTION_SETTINGS.items()
@@ -77,7 +71,5 @@ def get_experimental_params() -> dict[str, Any]:
         "ts_names": ts_names,
         "detectors": detectors,
         "corruption_types": corruption_types,
-        "data_perfectness_levels": data_perfectness_levels,
-        "evaluation_methods": evaluation_methods,
         "corruption_settings": corruption_settings,
     }

@@ -1,6 +1,9 @@
-CREATE TABLE IF NOT EXISTS window_lengths (
+CREATE TABLE IF NOT EXISTS ts_metadata (
     dataset TEXT PRIMARY KEY,
-    window_length INTEGER NOT NULL
+    -- TSB_AD.utils.slidingWindows.find_length(data)
+    window_length INTEGER NOT NULL,
+    -- TSB_AD.utils.slidingWindows.find_length_rank(data, rank=1)
+    periodicity INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS experiments (
@@ -30,18 +33,30 @@ CREATE TABLE IF NOT EXISTS experiments (
 );
 
 CREATE TABLE IF NOT EXISTS evaluations (
-    experiment_id TEXT NOT NULL,
+    experiment_id TEXT PRIMARY KEY,
     dataset_name TEXT,
     detector TEXT,
     random_seed TEXT,
     data_perfectness TEXT,
     corruption_type TEXT,
-    metric TEXT NOT NULL,
-    score DOUBLE PRECISION,
+    -- From TSB_AD.evaluation.metrics.get_metrics(), computed together in one call.
+    -- The threshold-dependent metrics (standard_f1 through affiliation_f) use a
+    -- real mu +/- 3*sigma threshold on the min-max-normalized decision scores
+    -- (see Experiment._run()), not get_metrics()'s default oracle/best-F1 threshold.
+    auc_pr DOUBLE PRECISION,
+    auc_roc DOUBLE PRECISION,
+    vus_pr DOUBLE PRECISION,
+    vus_roc DOUBLE PRECISION,
+    standard_f1 DOUBLE PRECISION,
+    pa_f1 DOUBLE PRECISION,
+    event_based_f1 DOUBLE PRECISION,
+    r_based_f1 DOUBLE PRECISION,
+    affiliation_f DOUBLE PRECISION,
+    -- Precision of that same 3-sigma threshold; not part of get_metrics().
+    precision_3sigma DOUBLE PRECISION,
     execution_time DOUBLE PRECISION,
     execution_profile TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    PRIMARY KEY (experiment_id, metric)
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS skipped_computations (

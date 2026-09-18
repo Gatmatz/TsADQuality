@@ -28,6 +28,9 @@ TSB-UAD/data/*
 # Environment variables
 .env
 
+# Postgres data directory (bind-mounted, contains local DB state)
+postgres/data/
+
 # OS specific
 .DS_Store
 Thumbs.db
@@ -43,9 +46,6 @@ venv/
 # Editor / tooling
 .vscode/
 .claude/
-
-# Shard logs from scripts/run_parallel_experiments.sh
-/logs/
 
 # Temp / scratch dirs
 .tmp.driveupload/

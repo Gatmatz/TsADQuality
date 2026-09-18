@@ -192,8 +192,7 @@ class PostgresClient(_PostgresClient, metaclass=SingletonPostgresClient):
         data_perfectness: str,
         corruption_type: str | None,
         detector: str,
-        metric: str,
-        score: float,
+        metrics: dict[str, float],
         execution_time: float,
         evaluations_table_name: str = "evaluations",
     ):
@@ -205,20 +204,19 @@ class PostgresClient(_PostgresClient, metaclass=SingletonPostgresClient):
                 "data_perfectness": data_perfectness,
                 "corruption_type": corruption_type,
                 "detector": detector,
-                "metric": metric,
-                "score": score,
                 "execution_time": execution_time,
+                **metrics,
             }
 
             cls.execute_insert_query(
                 table_name=evaluations_table_name, query_params=query_params
             )
             LOG.info(
-                f"Wrote evaluation '{metric}'={score} for experiment {experiment_id} in '{evaluations_table_name}'"
+                f"Wrote evaluation {metrics} for experiment {experiment_id} in '{evaluations_table_name}'"
             )
         except Exception as e:
             LOG.error(
-                f"Failed to write evaluation '{metric}' for experiment {experiment_id}. Error: {e}"
+                f"Failed to write evaluation for experiment {experiment_id}. Error: {e}"
             )
             raise
 

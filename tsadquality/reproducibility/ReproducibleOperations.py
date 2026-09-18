@@ -46,7 +46,10 @@ class ReproducibleOperations(_RandomSeedOperations, metaclass=Singleton):
             random.seed(self._random_seed)
             np.random.seed(self._random_seed)
             torch.manual_seed(self._random_seed)
+            torch.cuda.manual_seed(self._random_seed)
             torch.cuda.manual_seed_all(self._random_seed)
+            torch.backends.cudnn.benchmark = False
+            torch.backends.cudnn.deterministic = True
 
     @classmethod
     def set_random_seed(cls, random_seed: float):
@@ -164,7 +167,13 @@ class ReproducibleOperations(_RandomSeedOperations, metaclass=Singleton):
         return df.sample(frac=1, replace=False).reset_index(drop=True)
 
     @classmethod
-    def get_lof(cls, window: int = 100, n_neighbors: int = 20, contamination: float = 0.1):
+    def get_lof(
+        cls,
+        window: int = 100,
+        n_neighbors: int = 20,
+        metric: str = "minkowski",
+        n_jobs: int = 1,
+    ):
         """Builds a `LOFDetector`. LOF has no random component of its own, but
         reproducibility is still enforced here for consistency with the rest of
         this class.
@@ -174,15 +183,17 @@ class ReproducibleOperations(_RandomSeedOperations, metaclass=Singleton):
         from tsadquality.detectors import LOFDetector
 
         return LOFDetector(
-            window=window, n_neighbors=n_neighbors, contamination=contamination
+            window=window, n_neighbors=n_neighbors, metric=metric, n_jobs=n_jobs
         )
 
     @classmethod
     def get_isolation_forest(
-        cls, window: int = 100, n_estimators: int = 100, contamination: float = 0.1
+        cls, window: int = 100, n_estimators: int = 100, max_features: float = 1, n_jobs: int = 1
     ):
-        """Builds an `IsolationForestDetector` with `random_state` pinned to the
-        seed set via `set_random_seed`.
+        """Builds an `IsolationForestDetector`. TSB-AD's `run_IForest` wrapper
+        pins `random_state=0` internally (it doesn't expose an override), so
+        reproducibility here is enforced only for consistency with the rest of
+        this class.
         """
         cls._ensure_reproducibility()
 
@@ -191,12 +202,12 @@ class ReproducibleOperations(_RandomSeedOperations, metaclass=Singleton):
         return IsolationForestDetector(
             window=window,
             n_estimators=n_estimators,
-            contamination=contamination,
-            random_state=cls._random_seed,
+            max_features=max_features,
+            n_jobs=n_jobs,
         )
 
     @classmethod
-    def get_matrix_profile(cls, window: int = 100):
+    def get_matrix_profile(cls, periodicity: int = 1, n_jobs: int = 1):
         """Builds a `MatrixProfileDetector`. STUMPY's matrix profile computation is
         deterministic, but reproducibility is still enforced here for consistency
         with the rest of this class.
@@ -205,31 +216,31 @@ class ReproducibleOperations(_RandomSeedOperations, metaclass=Singleton):
 
         from tsadquality.detectors import MatrixProfileDetector
 
-        return MatrixProfileDetector(window=window)
+        return MatrixProfileDetector(periodicity=periodicity, n_jobs=n_jobs)
 
     @classmethod
-    def get_autoencoder(cls, window: int = 100, epochs: int = 10, verbose: int = 0):
+    def get_autoencoder(cls, window: int = 100, hidden_neurons: list | None = None, n_jobs: int = 1):
         """Builds an `AutoEncoderDetector`, seeding numpy/random/torch (via
-        `seed_everything`) plus TensorFlow's global RNG, since AE_MLP2's weight
-        initialization and training run on TensorFlow rather than torch.
+        `seed_everything`) since TSB-AD's AutoEncoder trains with torch.
         """
         cls._ensure_reproducibility()
         cls.seed_everything()
 
-        import tensorflow as tf
-
-        tf.random.set_seed(cls._random_seed)
-
         from tsadquality.detectors import AutoEncoderDetector
 
-        return AutoEncoderDetector(window=window, epochs=epochs, verbose=verbose)
+        return AutoEncoderDetector(window=window, hidden_neurons=hidden_neurons, n_jobs=n_jobs)
 
     @classmethod
-    def get_detector(cls, detector_model, window: int = 100, **options):
+    def get_detector(
+        cls, detector_model, window: int = 100, periodicity: int = 1, **options
+    ):
         """Builds a detector for `detector_model` (a `DetectorModel` member),
         dispatching to this class's own `get_*` factory so the seed set via
         `set_random_seed` reaches every detector's randomness the same way it
-        reaches the corruption injectors.
+        reaches the corruption injectors. `window` and `periodicity` come from
+        `ts_metadata` (see `Experiment._window_length()`/`_periodicity()`);
+        `MatrixProfileDetector` is the only one that consumes `periodicity`
+        instead of `window`.
         """
         from tsadquality.enums.detectors import DetectorModel
 
@@ -239,6 +250,6 @@ class ReproducibleOperations(_RandomSeedOperations, metaclass=Singleton):
             case DetectorModel.ISO:
                 return cls.get_isolation_forest(window=window, **options)
             case DetectorModel.MP:
-                return cls.get_matrix_profile(window=window, **options)
+                return cls.get_matrix_profile(periodicity=periodicity, **options)
             case DetectorModel.AutoEncoder:
                 return cls.get_autoencoder(window=window, **options)

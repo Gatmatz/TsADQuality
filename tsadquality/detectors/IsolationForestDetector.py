@@ -1,24 +1,27 @@
-from TSB_UAD.models.feature import Window
-from TSB_UAD.models.iforest import IForest
+import numpy as np
+from TSB_AD.model_wrapper import run_Unsupervise_AD
 
 from tsadquality.detectors.BaseDetector import BaseDetector
 
 
 class IsolationForestDetector(BaseDetector):
-    """Wraps tsb-uad's sliding-window Isolation Forest detector."""
+    """Wraps TSB-AD's `run_Unsupervise_AD('IForest', ...)`."""
 
-    def __init__(self, window=100, n_estimators=100, contamination=0.1, random_state=None):
-        super().__init__(window=window)
+    def __init__(self, window=100, n_estimators=100, max_features=1, n_jobs=1):
+        super().__init__()
+        self.window = window
         self.n_estimators = n_estimators
-        self.contamination = contamination
-        self.random_state = random_state
+        self.max_features = max_features
+        self.n_jobs = n_jobs
 
-    def _raw_scores(self, X):
-        subsequences = Window(window=self.window).convert(X).to_numpy()
-        model = IForest(
+    def fit(self, X):
+        data = np.asarray(X, dtype=float).reshape(-1, 1)
+        self.decision_scores_ = run_Unsupervise_AD(
+            "IForest",
+            data,
+            slidingWindow=self.window,
             n_estimators=self.n_estimators,
-            contamination=self.contamination,
-            random_state=self.random_state,
+            max_features=self.max_features,
+            n_jobs=self.n_jobs,
         )
-        model.fit(subsequences)
-        return model.decision_scores_
+        return self
