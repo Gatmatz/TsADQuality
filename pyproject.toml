@@ -1,0 +1,43 @@
+[project]
+name = "tsadquality"
+version = "0.1.0"
+description = "Time series anomaly detection quality experiments"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "numpy>=2.0",
+    "pandas>=2.0.3",
+    "matplotlib>=3.7.5",
+    "seaborn>=0.13",
+    "scipy>=1.10",
+    "scikit-learn>=1.3.2",
+    "stumpy>=1.12.0",
+    "tensorflow>=2.13.0",
+    "torch>=2.1",
+    "tsfresh>=0.20.2",
+    "hurst>=0.0.5",
+    "tslearn>=0.6.3",
+    "networkx>=3.1",
+    "arch>=5.3.1",
+    "sympy>=1.12",
+    "pywavelets>=1.4",
+    "tqdm>=4.66",
+    "python-docx>=1.1",
+    "ruff>=0.16.7",
+    "tsb-uad>=0.0.3",
+    "psycopg2-binary>=2.9.13",
+    "python-dotenv>=1.2.3",
+    "sqlalchemy>=2.0.54",
+]
+
+[project.optional-dependencies]
+# momentfm pins numpy==1.25.2, incompatible with this project's numpy>=2.0
+# (see vendor_patches/tsb_ad/README.md); install it in a separate venv if needed.
+foundation-models = [
+    "chronos-forecasting>=1.0",
+]
+explain = [
+    "shap>=0.44",
+]
+
+[tool.uv]
+package = false

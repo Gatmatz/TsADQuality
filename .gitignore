@@ -19,8 +19,14 @@ data/raw/*
 TSB-UAD/data/*
 !TSB-UAD/data/.keep
 
+# Ignore downloaded datasets at project root
+/data/
+
 # Exceptions: we might want to keep the subset lists
 !data/subsets/*
+
+# Environment variables
+.env
 
 # OS specific
 .DS_Store
@@ -37,6 +43,9 @@ venv/
 # Editor / tooling
 .vscode/
 .claude/
+
+# Shard logs from scripts/run_parallel_experiments.sh
+/logs/
 
 # Temp / scratch dirs
 .tmp.driveupload/
@@ -55,6 +64,13 @@ rendered_*/
 # Vendored clone of TSB-AD (own upstream repo + ~358MB of datasets).
 # Local modifications are preserved as patches in vendor_patches/tsb_ad/.
 TSB-AD/
+
+# Bulk project directories kept local only
+/figures/
+/notebooks/
+/src/
+/TSB-UAD/
+/vendor_patches/
 
 # Evaluation output dirs (regenerable from src/experiments/)
 eval_350/
