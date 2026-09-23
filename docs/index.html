@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <!-- Primary Meta Tags -->
+  <meta name="title" content="Drawing The Line: Data Quality and Anomaly Detection In Time-series Data">
+  <meta name="description" content="A reproducible benchmark of how data-quality problems (noise, spikes, stuck sensors, swaps and permutations) change the results of time-series anomaly detectors on TSB-AD-U.">
+  <meta name="keywords" content="time series, anomaly detection, data quality, data corruption, TSB-AD">
+  <meta name="robots" content="index, follow">
+  <meta name="language" content="English">
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Drawing The Line: Data Quality and Anomaly Detection In Time-series Data">
+  <meta property="og:description" content="A reproducible benchmark of how data-quality problems change what time-series anomaly detectors find.">
+  <meta property="og:url" content="https://gatmatz.github.io/TsADQuality/">
+  <meta name="theme-color" content="#2563eb">
+
+  <title>Drawing The Line: Data Quality and Anomaly Detection In Time-series Data</title>
+
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📈</text></svg>">
+
+  <!-- Template styles, plus this page's additions -->
+  <link rel="stylesheet" href="static/css/bulma.min.css">
+  <link rel="stylesheet" href="static/css/index.css">
+  <link rel="stylesheet" href="static/css/tsadquality.css">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <script defer src="static/js/fontawesome.all.min.js"></script>
+  <script defer src="static/js/index.js"></script>
+</head>
+<body>
+
+  <!-- Scroll to Top Button -->
+  <button class="scroll-to-top" onclick="scrollToTop()" title="Scroll to top" aria-label="Scroll to top">
+    <i class="fas fa-chevron-up"></i>
+  </button>
+
+  <main id="main-content">
+  <section class="hero">
+    <div class="hero-body">
+      <div class="container is-max-desktop">
+        <div class="columns is-centered">
+          <div class="column has-text-centered">
+            <h1 class="title is-1 publication-title">Drawing The Line: Data Quality and Anomaly Detection In Time-series Data</h1>
+            <div class="is-size-5 publication-authors">
+              <span class="author-block">A reproducible benchmark of how data-quality problems change what time-series anomaly detectors find</span>
+            </div>
+            <!-- Authors and affiliations, in the template's format:
+            <div class="is-size-5 publication-authors">
+              <span class="author-block"><a href="AUTHOR LINK" target="_blank">Author Name</a><sup>1</sup>,</span>
+            </div>
+            <div class="is-size-5 publication-authors">
+              <span class="author-block"><sup>1</sup>Institution Name</span>
+            </div>
+            -->
+
+            <div class="column has-text-centered">
+              <div class="publication-links">
+                <span class="link-block">
+                  <a href="https://github.com/Gatmatz/TsADQuality" target="_blank"
+                  class="external-link button is-normal is-rounded is-dark">
+                    <span class="icon"><i class="fab fa-github"></i></span>
+                    <span>Code</span>
+                  </a>
+                </span>
+                <span class="link-block">
+                  <a href="https://thedatumorg.github.io/TSB-AD/" target="_blank"
+                  class="external-link button is-normal is-rounded is-dark">
+                    <span class="icon"><i class="fas fa-flask"></i></span>
+                    <span>TSB-AD benchmark</span>
+                  </a>
+                </span>
+                <span class="link-block">
+                  <a href="https://www.thedatum.org/datasets/TSB-AD-U.zip" target="_blank"
+                  class="external-link button is-normal is-rounded is-dark">
+                    <span class="icon"><i class="fas fa-database"></i></span>
+                    <span>TSB-AD-U data</span>
+                  </a>
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- Teaser figure -->
+  <section class="hero teaser">
+    <div class="container is-max-desktop">
+      <div class="hero-body">
+        <div class="figure-card">
+          <img src="static/images/corruptions.svg" width="1200" height="552"
+               alt="Six small-multiple line charts of the same sensor time series from TSB-AD-U, each overlaying the clean series (blue) and a corrupted version (orange), with the labelled anomaly shaded gray. White noise at 10 dB SNR adds jitter everywhere; spikes add a few isolated extreme points; a stuck sensor freezes the signal flat for a stretch; point swap and segment swap make only small, local changes; permutation reorders whole segments so the pattern no longer lines up.">
+        </div>
+        <h2 class="subtitle has-text-centered">
+          The six corruption types in the sweep, each applied by <code>tsadquality</code> with one of its swept settings
+          to an excerpt of <code>339_UCR_id_37_Sensor</code> from TSB-AD-U.
+        </h2>
+      </div>
+    </div>
+  </section>
+  <!-- End teaser figure -->
+
+
+  <!-- Abstract -->
+  <section class="section hero">
+    <div class="container is-max-desktop">
+      <div class="columns is-centered has-text-centered">
+        <div class="column is-four-fifths">
+          <h2 class="title is-3">Overview</h2>
+          <div class="content has-text-justified">
+            <p>
+              Anomaly-detection benchmarks score detectors on curated series, but data from real sensors and systems is
+              rarely clean: it is noisy, it spikes, sensors freeze, samples arrive out of order. <strong>Drawing The Line</strong>
+              measures how much each of these problems changes a detector's results, and why.
+            </p>
+            <p>
+              Every series in the <a href="https://thedatumorg.github.io/TSB-AD/" target="_blank">TSB-AD-U</a> evaluation set
+              is corrupted in a controlled, reproducible way, at a range of severities. Each detector is then fitted and scored
+              on both the clean and the corrupted series. Beyond accuracy metrics, the benchmark records a quantity from
+              <em>inside</em> each fitted model, such as the k-distance gap of LOF or the nearest-neighbour distance gap of the
+              matrix profile. This shows whether a drop in accuracy comes from anomalies looking less anomalous or from normal
+              points looking more anomalous.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+  <!-- End abstract -->
+
+
+  <!-- Results -->
+  <section class="section" id="results">
+    <div class="container is-max-desktop content">
+      <h2 class="title is-3 has-text-centered">Results</h2>
+      <div class="notification">
+        Results will be published here once the full sweep has finished. For each detector and corruption, they will show
+        how accuracy (e.g. VUS-PR, AUC-ROC) and the detector's internal separation change as the corruption gets more
+        severe, relative to the same detector on the clean series.
+      </div>
+    </div>
+  </section>
+
+
+  <!-- Benchmark at a glance -->
+  <section class="section" id="setup">
+    <div class="container is-max-desktop content">
+      <h2 class="title is-3 has-text-centered">Benchmark at a glance</h2>
+      <div class="stats">
+        <div class="stat"><div class="value">342</div><div class="label">univariate series from TSB-AD-U</div></div>
+        <div class="stat"><div class="value">22</div><div class="label">source dataset families</div></div>
+        <div class="stat"><div class="value">4</div><div class="label">detectors</div></div>
+        <div class="stat"><div class="value">6 · 44</div><div class="label">corruption types · swept settings</div></div>
+        <div class="stat"><div class="value">3</div><div class="label">random seeds per condition</div></div>
+        <div class="stat"><div class="value">184,680</div><div class="label">experiments in the full sweep</div></div>
+      </div>
+      <p>
+        Each detector runs on every series and seed once on the clean data and once per corruption setting:
+        342 series × 3 seeds × 4 detectors × (1 + 44) = 184,680 experiments.
+      </p>
+    </div>
+  </section>
+
+
+  <!-- Pipeline -->
+  <section class="section" id="pipeline">
+    <div class="container is-max-desktop content">
+      <h2 class="title is-3 has-text-centered">Pipeline</h2>
+      <ol class="pipeline">
+        <li><strong>Load</strong><span>A TSB-AD-U series and its precomputed window length and periodicity.</span></li>
+        <li><strong>Corrupt</strong><span>Inject one corruption at one setting with a fixed seed, or leave it clean.</span></li>
+        <li><strong>Fit</strong><span>Fit the detector with TSB-AD's implementation, keeping the fitted model.</span></li>
+        <li><strong>Evaluate</strong><span>Score it against the original labels, plus one internal metric from the model.</span></li>
+        <li><strong>Store</strong><span>Results go to PostgreSQL; decision scores of clean runs to MinIO object storage.</span></li>
+      </ol>
+      <p>Labels are never corrupted: a detector always sees the corrupted series but is scored against the original ground truth.</p>
+    </div>
+  </section>
+
+
+  <!-- Corruptions -->
+  <section class="section" id="corruptions">
+    <div class="container is-max-desktop content">
+      <h2 class="title is-3 has-text-centered">Corruptions</h2>
+      <p>Every corruption is applied by an injector in <code>tsadquality.corruption</code>. The sweep covers every combination of the settings below.</p>
+      <div class="table-wrap">
+        <table class="table is-fullwidth is-striped">
+          <thead><tr><th>Corruption</th><th>What it does</th><th>Swept settings</th><th class="has-text-right">Settings</th></tr></thead>
+          <tbody>
+            <tr><td>White noise</td><td>Adds Gaussian noise at a target signal-to-noise ratio.</td><td>SNR (dB): 40, 20, 10, 0, −10, −20</td><td class="num">6</td></tr>
+            <tr><td>Spikes</td><td>Adds isolated ±<i>k</i>·σ spikes at a fraction of points.</td><td>fraction: 0.01, 0.05, 0.2 × <i>k</i>: 3, 5, 10</td><td class="num">9</td></tr>
+            <tr><td>Stuck sensor</td><td>Freezes the signal at its current value for a number of blocks covering a fraction of the series.</td><td>fraction: 0.01, 0.05, 0.2 × blocks: 1, 10, 20</td><td class="num">9</td></tr>
+            <tr><td>Point swap</td><td>Swaps pairs of single points.</td><td>fraction: 0.01, 0.05, 0.2, 0.4</td><td class="num">4</td></tr>
+            <tr><td>Segment swap</td><td>Swaps pairs of segments; the fraction is split over the swaps.</td><td>fraction: 0.01, 0.1, 0.3 × swaps: 1, 5, 10, 20</td><td class="num">12</td></tr>
+            <tr><td>Permutation</td><td>Cuts the series into equal segments and reorders them, so no segment stays in place.</td><td>segments: 2, 8, 16, 24</td><td class="num">4</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Missing-value corruptions (point, burst and Gilbert–Elliott missingness) are implemented too, but are not part of the current sweep.</p>
+    </div>
+  </section>
+
+
+  <!-- Detectors -->
+  <section class="section" id="detectors">
+    <div class="container is-max-desktop content">
+      <h2 class="title is-3 has-text-centered">Detectors</h2>
+      <p>
+        All four detectors use the implementations from <a href="https://github.com/TheDatumOrg/TSB-AD" target="_blank">TSB-AD</a> 1.5,
+        with the same settings for every series. The window length comes from each series' dominant period.
+      </p>
+      <div class="table-wrap">
+        <table class="table is-fullwidth is-striped">
+          <thead><tr><th>Detector</th><th>Approach</th><th>Settings</th><th>Internal metric</th></tr></thead>
+          <tbody>
+            <tr><td>Local Outlier Factor</td><td>Density of each sliding window relative to its neighbours</td><td>20 neighbours</td><td><code>kdist_gap</code>: mean k-distance on anomalous − normal points</td></tr>
+            <tr><td>Isolation Forest</td><td>How quickly random splits isolate each sliding window</td><td>100 trees</td><td><code>separation_gap</code>: mean isolation score on anomalous − normal points</td></tr>
+            <tr><td>Matrix Profile</td><td>Distance from each subsequence to its nearest neighbour elsewhere in the series</td><td>window from periodicity</td><td><code>nn_dist_gap</code>: mean nearest-neighbour distance on anomalous − normal points</td></tr>
+            <tr><td>AutoEncoder</td><td>Reconstruction error of each window, trained on the series itself</td><td>hidden layers 64, 32; 50 epochs</td><td><code>error_ratio</code>: mean reconstruction error on anomalous ÷ normal points</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- Evaluation -->
+  <section class="section" id="evaluation">
+    <div class="container is-max-desktop content">
+      <h2 class="title is-3 has-text-centered">Evaluation</h2>
+      <h4>Accuracy</h4>
+      <p>
+        Every experiment is scored with TSB-AD's metrics: <strong>AUC-PR</strong>, <strong>AUC-ROC</strong>,
+        <strong>VUS-PR</strong>, <strong>VUS-ROC</strong>, and the threshold-based <strong>Standard-F1</strong>,
+        <strong>PA-F1</strong>, <strong>Event-based-F1</strong>, <strong>R-based-F1</strong> and <strong>Affiliation-F</strong>.
+        The threshold-based ones use a threshold a real deployment could use (mean + 2 standard deviations of the
+        min-max-scaled scores), not the best possible threshold chosen with knowledge of the labels. The precision of that
+        threshold is kept as well.
+      </p>
+      <h4>Internal metrics</h4>
+      <p>
+        Each detector also reports one quantity read from inside its fitted model (see the detector table). Per-window
+        values are assigned to the centre point of their window, the same alignment TSB-AD uses for scores, and split by
+        the point-level labels. Comparing a corrupted run with the clean run of the same series, seed and detector shows
+        what the corruption changed inside the model.
+      </p>
+    </div>
+  </section>
+
+
+  <!-- Data -->
+  <section class="section" id="data">
+    <div class="container is-max-desktop content">
+      <h2 class="title is-3 has-text-centered">Data</h2>
+      <p>
+        The benchmark uses the TSB-AD-U evaluation set, minus the 8 longest series (the MIT-BIH arrhythmia recordings and
+        one UCR series, 500,000–900,000 points each), which would dominate the runtime. Series per source dataset:
+      </p>
+      <div class="tags families">
+        <span class="tag is-medium">UCR <b>&nbsp;69</b></span><span class="tag is-medium">SMD <b>&nbsp;33</b></span>
+        <span class="tag is-medium">YAHOO <b>&nbsp;30</b></span><span class="tag is-medium">Exathlon <b>&nbsp;30</b></span>
+        <span class="tag is-medium">OPPORTUNITY <b>&nbsp;27</b></span><span class="tag is-medium">NAB <b>&nbsp;23</b></span>
+        <span class="tag is-medium">WSD <b>&nbsp;20</b></span><span class="tag is-medium">SVDB <b>&nbsp;18</b></span>
+        <span class="tag is-medium">SMAP <b>&nbsp;17</b></span><span class="tag is-medium">IOPS <b>&nbsp;15</b></span>
+        <span class="tag is-medium">TODS <b>&nbsp;13</b></span><span class="tag is-medium">Stock <b>&nbsp;8</b></span>
+        <span class="tag is-medium">LTDB <b>&nbsp;8</b></span><span class="tag is-medium">MGAB <b>&nbsp;8</b></span>
+        <span class="tag is-medium">NEK <b>&nbsp;8</b></span><span class="tag is-medium">MSL <b>&nbsp;7</b></span>
+        <span class="tag is-medium">SED <b>&nbsp;2</b></span><span class="tag is-medium">TAO <b>&nbsp;2</b></span>
+        <span class="tag is-medium">Daphnet <b>&nbsp;1</b></span><span class="tag is-medium">CATSv2 <b>&nbsp;1</b></span>
+        <span class="tag is-medium">Power <b>&nbsp;1</b></span><span class="tag is-medium">SWaT <b>&nbsp;1</b></span>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- Reproducibility -->
+  <section class="section" id="reproducibility">
+    <div class="container is-max-desktop content">
+      <h2 class="title is-3 has-text-centered">Reproducibility</h2>
+      <ul>
+        <li>Every random step (corruption and detector) is seeded from one of three fixed seeds, and PyTorch runs in deterministic mode.</li>
+        <li>Each experiment has an ID that encodes the series, seed, corruption, every corruption setting and the detector. A run skips any experiment already stored.</li>
+        <li>The sweep can be split across parallel workers; each experiment is assigned to exactly one worker by a stable hash, whatever order they run in.</li>
+        <li>The detector code is a pinned copy of TSB-AD 1.5's wrappers, checked to produce identical scores.</li>
+      </ul>
+    </div>
+  </section>
+
+
+  <!-- Getting started -->
+  <section class="section" id="getting-started">
+    <div class="container is-max-desktop content">
+      <h2 class="title is-3 has-text-centered">Getting started</h2>
+      <pre><code># install (Python 3.11, managed with uv)
+uv sync
+
+# configure credentials and the sweep, then start PostgreSQL and MinIO
+cp .env.sample .env
+docker compose up -d postgres minio
+
+# download TSB-AD-U and precompute each series' window length and periodicity
+uv run python tsadquality/data/download_tsb_ad_u.py
+uv run python -m tsadquality.utils.ts_metadata_table
+
+# run the sweep on N parallel workers
+scripts/run_parallel_experiments.sh 18
+
+# plot, e.g. accuracy against noise level for every detector
+uv run python -m tsadquality.plots.WhiteNoiseLineplot --metric VUS-PR</code></pre>
+    </div>
+  </section>
+
+
+  <!-- Acknowledgements -->
+  <section class="section" id="acknowledgements">
+    <div class="container is-max-desktop content">
+      <h2 class="title is-3 has-text-centered">Acknowledgements</h2>
+      <p>
+        This work builds on the <a href="https://thedatumorg.github.io/TSB-AD/" target="_blank">TSB-AD</a> benchmark by
+        Qinghua Liu and John Paparrizos, for both its datasets and its detector and metric implementations.
+      </p>
+    </div>
+  </section>
+  </main>
+
+
+  <footer class="footer">
+  <div class="container">
+    <div class="columns is-centered">
+      <div class="column is-8">
+        <div class="content">
+
+          <p>
+            This page was built using the <a href="https://github.com/eliahuhorwitz/Academic-project-page-template" target="_blank">Academic Project Page Template</a> which was adopted from the <a href="https://nerfies.github.io" target="_blank">Nerfies</a> project page.
+            You are free to borrow the source code of this website, we just ask that you link back to this page in the footer. <br> This website is licensed under a <a rel="license"  href="http://creativecommons.org/licenses/by-sa/4.0/" target="_blank">Creative
+            Commons Attribution-ShareAlike 4.0 International License</a>.
+          </p>
+
+        </div>
+      </div>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

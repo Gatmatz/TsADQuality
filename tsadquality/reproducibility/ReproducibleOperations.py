@@ -19,7 +19,7 @@ class ReproducibleOperations(_RandomSeedOperations, metaclass=Singleton):
         from tsadquality.reproducibility import ReproducibilityError
 
         if self._random_seed:
-            self.seed_everything()
+            np.random.seed(self._random_seed)
             return
         raise ReproducibilityError(
             "The reproducibility of the requested operation that involves randomness cannot be ensured. \

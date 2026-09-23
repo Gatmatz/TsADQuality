@@ -1,0 +1,40 @@
+[project]
+name = "tsadquality"
+version = "0.1.0"
+description = "Controlled, reproducible corruption of time series (noise, spikes, stuck sensors, swaps, permutations, missing values) for anomaly-detection research."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+    "pandas>=2.0",
+]
+keywords = ["time series", "anomaly detection", "data quality", "data corruption", "robustness", "benchmark"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering",
+]
+
+[project.urls]
+Homepage = "https://gatmatz.github.io/TsADQuality/"
+Source = "https://github.com/Gatmatz/TsADQuality"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build]
+# The repo's .gitignore has "/src/" (the old research code at the repo root); hatchling
+# would apply it relative to this folder and drop library/src, so select files explicitly.
+ignore-vcs = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tsadquality"]
+
+[tool.hatch.build.targets.sdist]
+only-include = ["src", "tests", "README.md", "LICENSE"]
+
+[dependency-groups]
+dev = ["pytest>=8"]
