@@ -65,14 +65,3 @@ class CorruptionType(EasilyStringifyableEnum):
 class DataPerfectness(EasilyStringifyableEnum):
     PERFECT = "PERF"
     IMPERFECT = "IMP"
-
-    def short_name(self) -> str:
-        """First 3 letters in capital for imperfect; first 4 letters in capital for
-        anything else.
-
-        Returns:
-            str: The shortname of the DataPerfectness object.
-        """
-        if self == DataPerfectness.IMPERFECT:
-            return self.value.upper()[:3]
-        return self.value.upper()[:4]

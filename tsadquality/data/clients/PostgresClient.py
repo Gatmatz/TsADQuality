@@ -97,30 +97,6 @@ class PostgresClient(_PostgresClient, metaclass=SingletonPostgresClient):
             connection.commit()
 
     @classmethod
-    def write_skipped_computation(
-        cls,
-        computation_id: str,
-        reason: str,
-        skipped_computations_table_name: str = "skipped_computations",
-    ) -> None:
-        try:
-            query_params = {
-                "computation_id": computation_id,
-                "reason": reason,
-            }
-            cls.execute_insert_query(
-                table_name=skipped_computations_table_name, query_params=query_params
-            )
-            LOG.info(
-                f"Wrote skipped computation {computation_id} in '{skipped_computations_table_name}'"
-            )
-        except Exception as e:
-            LOG.error(
-                f"Failed to write skipped computation {computation_id}. Error: {e}"
-            )
-            raise
-
-    @classmethod
     def write_runtime_error(
         cls,
         experiment_id: str,
@@ -196,6 +172,14 @@ class PostgresClient(_PostgresClient, metaclass=SingletonPostgresClient):
         execution_time: float,
         evaluations_table_name: str = "evaluations",
     ):
+        import math
+
+        # NaN (e.g. an internal metric on a series with no anomaly windows) is stored
+        # as NULL, not Postgres' NaN, so aggregates like AVG() skip it.
+        metrics = {
+            name: None if value is None or math.isnan(value) else float(value)
+            for name, value in metrics.items()
+        }
         try:
             query_params = {
                 "experiment_id": experiment_id,

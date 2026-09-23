@@ -96,3 +96,5 @@ src/results/
 /old_basic_metrics.py
 /old_basic_metricor.py
 /new_basic_metrics.py
+
+minio/data/

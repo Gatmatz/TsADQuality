@@ -19,7 +19,7 @@ class ReproducibleOperations(_RandomSeedOperations, metaclass=Singleton):
         from tsadquality.reproducibility import ReproducibilityError
 
         if self._random_seed:
-            np.random.seed(self._random_seed)
+            self.seed_everything()
             return
         raise ReproducibilityError(
             "The reproducibility of the requested operation that involves randomness cannot be ensured. \
@@ -50,6 +50,11 @@ class ReproducibleOperations(_RandomSeedOperations, metaclass=Singleton):
             torch.cuda.manual_seed_all(self._random_seed)
             torch.backends.cudnn.benchmark = False
             torch.backends.cudnn.deterministic = True
+            # cuBLAS needs this workspace config to be deterministic on CUDA >= 10.2;
+            # without it, use_deterministic_algorithms makes cuBLAS calls raise. It must
+            # be set before the first cuBLAS call, which this runs ahead of.
+            os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
+            torch.use_deterministic_algorithms(True)
 
     @classmethod
     def set_random_seed(cls, random_seed: float):
@@ -167,89 +172,37 @@ class ReproducibleOperations(_RandomSeedOperations, metaclass=Singleton):
         return df.sample(frac=1, replace=False).reset_index(drop=True)
 
     @classmethod
-    def get_lof(
-        cls,
-        window: int = 100,
-        n_neighbors: int = 20,
-        metric: str = "minkowski",
-        n_jobs: int = 1,
+    def run_detector(
+        cls, detector_model, values, window: int = 100, periodicity: int = 1, **options
     ):
-        """Builds a `LOFDetector`. LOF has no random component of its own, but
-        reproducibility is still enforced here for consistency with the rest of
-        this class.
+        """Fits `detector_model` (a `DetectorModel` member) on `values` through
+        `tsadquality.detectors.model_wrapper` and returns `(scores, fitted TSB-AD model)`.
+        The seed set via `set_random_seed` is re-applied first, so it reaches every
+        detector's randomness the same way it reaches the corruption injectors.
+        `window` and `periodicity` come from `ts_metadata` (see
+        `Experiment._window_length()`/`_periodicity()`); MatrixProfile is the only
+        detector that consumes `periodicity` instead of `window`.
         """
-        cls._ensure_reproducibility()
+        import numpy as np
 
-        from tsadquality.detectors import LOFDetector
-
-        return LOFDetector(
-            window=window, n_neighbors=n_neighbors, metric=metric, n_jobs=n_jobs
+        from tsadquality.detectors.model_wrapper import (
+            run_Semisupervise_AD,
+            run_Unsupervise_AD,
         )
-
-    @classmethod
-    def get_isolation_forest(
-        cls, window: int = 100, n_estimators: int = 100, max_features: float = 1, n_jobs: int = 1
-    ):
-        """Builds an `IsolationForestDetector`. TSB-AD's `run_IForest` wrapper
-        pins `random_state=0` internally (it doesn't expose an override), so
-        reproducibility here is enforced only for consistency with the rest of
-        this class.
-        """
-        cls._ensure_reproducibility()
-
-        from tsadquality.detectors import IsolationForestDetector
-
-        return IsolationForestDetector(
-            window=window,
-            n_estimators=n_estimators,
-            max_features=max_features,
-            n_jobs=n_jobs,
-        )
-
-    @classmethod
-    def get_matrix_profile(cls, periodicity: int = 1, n_jobs: int = 1):
-        """Builds a `MatrixProfileDetector`. STUMPY's matrix profile computation is
-        deterministic, but reproducibility is still enforced here for consistency
-        with the rest of this class.
-        """
-        cls._ensure_reproducibility()
-
-        from tsadquality.detectors import MatrixProfileDetector
-
-        return MatrixProfileDetector(periodicity=periodicity, n_jobs=n_jobs)
-
-    @classmethod
-    def get_autoencoder(cls, window: int = 100, hidden_neurons: list | None = None, n_jobs: int = 1):
-        """Builds an `AutoEncoderDetector`, seeding numpy/random/torch (via
-        `seed_everything`) since TSB-AD's AutoEncoder trains with torch.
-        """
-        cls._ensure_reproducibility()
-        cls.seed_everything()
-
-        from tsadquality.detectors import AutoEncoderDetector
-
-        return AutoEncoderDetector(window=window, hidden_neurons=hidden_neurons, n_jobs=n_jobs)
-
-    @classmethod
-    def get_detector(
-        cls, detector_model, window: int = 100, periodicity: int = 1, **options
-    ):
-        """Builds a detector for `detector_model` (a `DetectorModel` member),
-        dispatching to this class's own `get_*` factory so the seed set via
-        `set_random_seed` reaches every detector's randomness the same way it
-        reaches the corruption injectors. `window` and `periodicity` come from
-        `ts_metadata` (see `Experiment._window_length()`/`_periodicity()`);
-        `MatrixProfileDetector` is the only one that consumes `periodicity`
-        instead of `window`.
-        """
         from tsadquality.enums.detectors import DetectorModel
+
+        cls._ensure_reproducibility()
+        data = np.asarray(values, dtype=float).reshape(-1, 1)
 
         match detector_model:
             case DetectorModel.LOF:
-                return cls.get_lof(window=window, **options)
+                return run_Unsupervise_AD("LOF", data, slidingWindow=window, **options)
             case DetectorModel.ISO:
-                return cls.get_isolation_forest(window=window, **options)
+                return run_Unsupervise_AD("IForest", data, slidingWindow=window, **options)
             case DetectorModel.MP:
-                return cls.get_matrix_profile(periodicity=periodicity, **options)
+                return run_Unsupervise_AD("MatrixProfile", data, periodicity=periodicity, **options)
             case DetectorModel.AutoEncoder:
-                return cls.get_autoencoder(window=window, **options)
+                # TSB-AD only ships a semisupervised AutoEncoder; fit and score on the
+                # same series (train == test) to match the purely unsupervised detectors.
+                cls.seed_everything()
+                return run_Semisupervise_AD("AutoEncoder", data, data, window_size=window, **options)

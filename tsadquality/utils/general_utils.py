@@ -31,7 +31,14 @@ def get_experimental_params() -> dict[str, Any]:
     eva_list_path = Path(__file__).resolve().parents[1] / "data" / "TSB-AD-U-Eva.csv"
     with eva_list_path.open() as f:
         eva_names = {Path(line.strip()).stem for line in f.readlines()[1:] if line.strip()}
-    ts_names = [name for name in ts_names if name in eva_names]
+
+    # Excludes the MITDB group and the 331_UCR_id_29_Facility dataset, whose row
+    # counts (230K-900K) dwarf the rest of the sweep and would dominate runtime.
+    excluded_list_path = Path(__file__).resolve().parents[1] / "data" / "EXCLUDED-TSB-AD-U-Eva.csv"
+    with excluded_list_path.open() as f:
+        excluded_names = {Path(line.strip()).stem for line in f.readlines()[1:] if line.strip()}
+
+    ts_names = [name for name in ts_names if name in eva_names and name not in excluded_names]
 
     random_seeds = copy.deepcopy(RANDOM_SEEDS)
 
@@ -54,7 +61,16 @@ def get_experimental_params() -> dict[str, Any]:
     pp(f"{detectors=}", compact=True)
     print()
 
-    corruption_types = list(CorruptionType)
+    _excluded_corruption_types = {
+        CorruptionType.POINT_MISSING,
+        CorruptionType.BURST_MISSING,
+        CorruptionType.GILBERT_ELLIOTT,
+    }
+    corruption_types = [
+        corruption_type
+        for corruption_type in CorruptionType
+        if corruption_type not in _excluded_corruption_types
+    ]
     shuffle_rng.shuffle(corruption_types)
     pp(f"{corruption_types=}", compact=True)
     print()

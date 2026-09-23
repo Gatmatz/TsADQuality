@@ -111,51 +111,5 @@ class BaseCorruptor:
             })
             self.corruption_mask.loc[indices] = True
 
-    def get_corruption_report(self):
-        total_len = len(self.df)
-        total_corrupted = self.corruption_mask.sum()
-
-        anomaly_indices = np.where(self.df[self.label_col] == 1)[0]
-        corrupted_indices = np.where(self.corruption_mask == True)[0]
-        avg_dist = -1
-        if len(anomaly_indices) > 0 and len(corrupted_indices) > 0:
-            distances = [np.min(np.abs(anomaly_indices - c_idx)) for c_idx in corrupted_indices]
-            avg_dist = np.mean(distances)
-
-        return {
-            'summary': {
-                'total_points': total_len,
-                'corrupted_points': int(total_corrupted),
-                'corruption_percentage': (total_corrupted / total_len) * 100,
-                'avg_distance_to_anomaly': float(avg_dist),
-                'corruption_target_mode': self.corruption_target
-            },
-            'action_details': self.history
-        }
-
-    def compare_statistics(self):
-        orig = self.df_original[self.value_col]
-        corr = self.df[self.value_col]
-        mask = ~(orig.isna() | corr.isna())
-        s_orig, s_corr = orig[mask], corr[mask]
-
-        if len(s_orig) == 0:
-            return {}
-
-        noise = s_corr - s_orig
-        signal_power = np.mean(s_orig.to_numpy() ** 2)
-        noise_power = np.mean(noise.to_numpy() ** 2)
-        snr_db = 10 * np.log10(signal_power / noise_power) if noise_power > 0 else 50.0
-
-        return {
-            'snr_db': float(snr_db),
-            'mean_shift_std': float(abs(s_corr.mean() - s_orig.mean()) / s_orig.std()),
-            'variance_ratio': float(s_corr.var() / s_orig.var()),
-            'missing_count': int(self.df[self.value_col].isna().sum())
-        }
-
     def get_corrupted_df(self):
         return self.df
-
-    def get_corruption_mask(self):
-        return self.corruption_mask

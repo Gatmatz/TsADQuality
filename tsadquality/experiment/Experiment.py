@@ -1,8 +1,10 @@
 from pathlib import Path
 from typing import Any, Self
 
+from tsadquality.enums.corruption import CORRUPTION_PARAM_FIELDS, CORRUPTION_PARAM_TYPES
 from tsadquality.enums.data import CorruptionType, DataPerfectness
 from tsadquality.enums.detectors import DetectorModel
+from tsadquality.enums.metrics import METRIC_COLUMNS
 from tsadquality.logging.logging import get_logger
 
 LOG = get_logger(__file__)
@@ -15,47 +17,6 @@ class Experiment:
     _NULL: str = "NULL"
     _value_col: str = "Data"
     _label_col: str = "Label"
-
-    # Maps TSB_AD.evaluation.metrics.get_metrics() keys to `evaluations` table columns.
-    _METRIC_COLUMNS: dict[str, str] = {
-        "AUC-PR": "auc_pr",
-        "AUC-ROC": "auc_roc",
-        "VUS-PR": "vus_pr",
-        "VUS-ROC": "vus_roc",
-        "Standard-F1": "standard_f1",
-        "PA-F1": "pa_f1",
-        "Event-based-F1": "event_based_f1",
-        "R-based-F1": "r_based_f1",
-        "Affiliation-F": "affiliation_f",
-    }
-
-    # Fixed positions for corruption params in the experiment id, matching the
-    # column order of the `experiments` table in postgres/init.sql. A field not
-    # used by a given corruption type is rendered as `_NULL`.
-    _corruption_param_fields: tuple[str, ...] = (
-        "snr_db",
-        "fraction",
-        "multiplier",
-        "num_swaps",
-        "num_permutations",
-        "stuck_blocks",
-        "num_bursts",
-        "mechanism",
-        "a",
-        "b",
-    )
-    _corruption_param_types: dict[str, type] = {
-        "snr_db": float,
-        "fraction": float,
-        "multiplier": float,
-        "num_swaps": int,
-        "num_permutations": int,
-        "stuck_blocks": int,
-        "num_bursts": int,
-        "mechanism": str,
-        "a": float,
-        "b": float,
-    }
 
     def __init__(
         self,
@@ -77,6 +38,7 @@ class Experiment:
 
         self.timeseries_df = None
         self.decision_scores_ = None
+        self.model_ = None
 
     @classmethod
     def short_name(cls):
@@ -112,20 +74,27 @@ class Experiment:
 
         window = self._window_length()
         periodicity = self._periodicity()
-        values = self._z_score(values)
-
-        detector_instance = ReproducibleOperations.get_detector(
-            self.detector, window=window, periodicity=periodicity, **(self.options or {})
-        )
+        # values = self._z_score(values) # This is done internally by TSB-AD's detectors, so we don't need to do it here.
 
         start = perf_counter()
-        detector_instance.fit(values)
+        self.decision_scores_, self.model_ = ReproducibleOperations.run_detector(
+            self.detector, values, window=window, periodicity=periodicity, **(self.options or {})
+        )
         execution_time = perf_counter() - start
-        self.decision_scores_ = detector_instance.decision_scores_
 
         LOG.info(
             f"Fitted {self.detector!s} on {self.timeseries} in {execution_time:.3f}s for experiment {self!s}"
         )
+
+        if self.data_perfectness == DataPerfectness.PERFECT:
+            from tsadquality.data.clients.MinioClient import MinioClient
+
+            MinioClient.write_decision_scores(
+                detector=str(self.detector),
+                random_seed=str(ReproducibleOperations.get_current_random_seed()),
+                dataset_name=self.timeseries,
+                scores=self.decision_scores_,
+            )
 
         PostgresClient.write_experiment(
             experiment_id=str(self),
@@ -143,33 +112,35 @@ class Experiment:
         # TSB-AD's get_metrics() computes AUC-PR/ROC, VUS-PR/ROC and the
         # threshold-dependent F1 variants together from shared intermediate work.
         # The threshold-dependent variants are scored against a real, deployable
-        # threshold (mu +/- 3*sigma on the min-max-normalized scores) rather than
+        # threshold (mean + 2*std of the min-max-normalized scores) rather than
         # get_metrics()'s default oracle/best-F1 threshold; we also keep that
-        # threshold's own precision as `precision_3sigma`.
+        # threshold's own precision as `precision_2sigma`.
         y_true = df[self._label_col].to_numpy()
         eval_start = perf_counter()
 
+        import numpy as np
         from sklearn.metrics import precision_score
-        from sklearn.preprocessing import MinMaxScaler
         from TSB_AD.evaluation.metrics import get_metrics
 
-        self.decision_scores_ = (
-            MinMaxScaler(feature_range=(0, 1))
-            .fit_transform(self.decision_scores_.reshape(-1, 1))
-            .ravel()
-        )
+        from tsadquality.evaluators.internal_metrics import compute_internal_metrics
+
+        self.decision_scores_ = self._min_max(self.decision_scores_)
         pred = self.decision_scores_ > (
-            self.decision_scores_.mean() + 3 * self.decision_scores_.std()
+            self.decision_scores_.mean() + 2 * self.decision_scores_.std()
         )
 
         raw_metrics = get_metrics(
             self.decision_scores_, y_true, slidingWindow=window, pred=pred
         )
         metrics = {
-            self._METRIC_COLUMNS[name]: float(value) for name, value in raw_metrics.items()
+            METRIC_COLUMNS[name]: float(value) for name, value in raw_metrics.items()
         }
-        metrics["precision_3sigma"] = float(
-            precision_score(y_true, pred.astype(int), zero_division=0)
+
+        metrics["precision_2sigma"] = float(
+            precision_score(y_true, pred.astype(int), zero_division=np.nan)
+        )
+        metrics.update(
+            compute_internal_metrics(self.detector, self.model_, self.decision_scores_, y_true)
         )
 
         eval_execution_time = perf_counter() - eval_start
@@ -185,6 +156,12 @@ class Experiment:
             execution_time=eval_execution_time,
         )
         LOG.info(f"Wrote evaluation {metrics} for experiment {self!s} to Postgres.")
+
+    @staticmethod
+    def _min_max(scores):
+        from sklearn.preprocessing import MinMaxScaler
+
+        return MinMaxScaler(feature_range=(0, 1)).fit_transform(scores.reshape(-1, 1)).ravel()
 
     def _timeseries_path(self) -> Path:
         return _PROJECT_ROOT / "data" / "TSB-AD-U" / f"{self.timeseries}.csv"
@@ -255,7 +232,7 @@ class Experiment:
                 str(corruption_params[field])
                 if field in corruption_params
                 else self._NULL
-                for field in self._corruption_param_fields
+                for field in CORRUPTION_PARAM_FIELDS
             ),  # One fixed-position slot per corruption param column, e.g. 'NULL' when not applicable
             str(self.detector),  # Detector type, e.g., 'IsolationForest'
         ]
@@ -274,17 +251,17 @@ class Experiment:
         )
 
         corruption_param_parts = experiment_id_parts[
-            5 : 5 + len(cls._corruption_param_fields)
+            5 : 5 + len(CORRUPTION_PARAM_FIELDS)
         ]
         corruption_params = {
-            field: cls._corruption_param_types[field](value)
+            field: CORRUPTION_PARAM_TYPES[field](value)
             for field, value in zip(
-                cls._corruption_param_fields, corruption_param_parts
+                CORRUPTION_PARAM_FIELDS, corruption_param_parts
             )
             if value != cls._NULL
         } or None
 
-        detector = DetectorModel(experiment_id_parts[5 + len(cls._corruption_param_fields)])
+        detector = DetectorModel(experiment_id_parts[5 + len(CORRUPTION_PARAM_FIELDS)])
 
         return cls(
             timeseries=timeseries,
@@ -309,13 +286,8 @@ class Experiment:
 
     def run(self, force: bool = False) -> Self:
         if not self._should_compute and not force:
-            from tsadquality.data.clients.PostgresClient import PostgresClient
-
             LOG.info(
                 f"Running experiment {self!s} will be skipped because it already exists in Postgres."
-            )
-            PostgresClient.write_skipped_computation(
-                computation_id=str(self), reason="Already exists in Postgres."
             )
             return self
 

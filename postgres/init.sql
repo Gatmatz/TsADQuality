@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS evaluations (
     corruption_type TEXT,
     -- From TSB_AD.evaluation.metrics.get_metrics(), computed together in one call.
     -- The threshold-dependent metrics (standard_f1 through affiliation_f) use a
-    -- real mu +/- 3*sigma threshold on the min-max-normalized decision scores
+    -- real mean + 2*std threshold on the min-max-normalized decision scores
     -- (see Experiment._run()), not get_metrics()'s default oracle/best-F1 threshold.
     auc_pr DOUBLE PRECISION,
     auc_roc DOUBLE PRECISION,
@@ -52,8 +52,14 @@ CREATE TABLE IF NOT EXISTS evaluations (
     event_based_f1 DOUBLE PRECISION,
     r_based_f1 DOUBLE PRECISION,
     affiliation_f DOUBLE PRECISION,
-    -- Precision of that same 3-sigma threshold; not part of get_metrics().
-    precision_3sigma DOUBLE PRECISION,
+    -- Precision of that same 2-sigma threshold; not part of get_metrics().
+    precision_2sigma DOUBLE PRECISION,
+    -- Internal metrics (tsadquality/evaluators/internal_metrics.py); only the
+    -- column of the row's `detector` is populated, the rest stay NULL.
+    separation_gap DOUBLE PRECISION,  -- IsolationForest
+    kdist_gap DOUBLE PRECISION,       -- LocalOutlierFactor
+    nn_dist_gap DOUBLE PRECISION,     -- MatrixProfile
+    error_ratio DOUBLE PRECISION,     -- AutoEncoder
     execution_time DOUBLE PRECISION,
     execution_profile TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
