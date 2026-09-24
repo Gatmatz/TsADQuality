@@ -191,13 +191,13 @@
   <section class="section" id="corruptions">
     <div class="container is-max-desktop content">
       <h2 class="title is-3 has-text-centered">Corruptions</h2>
-      <p>Every corruption is applied by an injector in <code>tsadquality.corruption</code>. The sweep covers every combination of the settings below.</p>
+      <p>Every corruption is applied by an injector in <code>tsadquality.corruption</code>. The sweep covers every combination of the settings below. Spikes only hit normal points, since on anomalies they would make them easier to detect; every other corruption applies to the whole series.</p>
       <div class="table-wrap">
         <table class="table is-fullwidth is-striped">
           <thead><tr><th>Corruption</th><th>What it does</th><th>Swept settings</th><th class="has-text-right">Settings</th></tr></thead>
           <tbody>
             <tr><td>White noise</td><td>Adds Gaussian noise at a target signal-to-noise ratio.</td><td>SNR (dB): 40, 20, 10, 0, −10, −20</td><td class="num">6</td></tr>
-            <tr><td>Spikes</td><td>Adds isolated ±<i>k</i>·σ spikes at a fraction of points.</td><td>fraction: 0.01, 0.05, 0.2 × <i>k</i>: 3, 5, 10</td><td class="num">9</td></tr>
+            <tr><td>Spikes</td><td>Adds isolated ±<i>k</i>·σ spikes at a fraction of the normal (non-anomalous) points.</td><td>fraction: 0.01, 0.05, 0.2 × <i>k</i>: 3, 5, 10</td><td class="num">9</td></tr>
             <tr><td>Stuck sensor</td><td>Freezes the signal at its current value for a number of blocks covering a fraction of the series.</td><td>fraction: 0.01, 0.05, 0.2 × blocks: 1, 10, 20</td><td class="num">9</td></tr>
             <tr><td>Point swap</td><td>Swaps pairs of single points.</td><td>fraction: 0.01, 0.05, 0.2, 0.4</td><td class="num">4</td></tr>
             <tr><td>Segment swap</td><td>Swaps pairs of segments; the fraction is split over the swaps.</td><td>fraction: 0.01, 0.1, 0.3 × swaps: 1, 5, 10, 20</td><td class="num">12</td></tr>

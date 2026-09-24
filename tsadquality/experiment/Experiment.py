@@ -1,7 +1,11 @@
 from pathlib import Path
 from typing import Any, Self
 
-from tsadquality.enums.corruption import CORRUPTION_PARAM_FIELDS, CORRUPTION_PARAM_TYPES
+from tsadquality.enums.corruption import (
+    CORRUPTION_PARAM_FIELDS,
+    CORRUPTION_PARAM_TYPES,
+    CORRUPTION_TARGETS,
+)
 from tsadquality.enums.data import CorruptionType, DataPerfectness
 from tsadquality.enums.detectors import DetectorModel
 from tsadquality.enums.metrics import METRIC_COLUMNS
@@ -201,6 +205,7 @@ class Experiment:
             df,
             value_col=self._value_col,
             label_col=self._label_col,
+            corruption_target=str(CORRUPTION_TARGETS[self.corruption_type]),
         )
 
         corruptor.inject(**(self.corruption_params or {}))

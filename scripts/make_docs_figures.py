@@ -18,6 +18,7 @@ import numpy as np
 import pandas as pd
 from matplotlib.patches import Patch
 
+from tsadquality.enums.corruption import CORRUPTION_TARGETS
 from tsadquality.enums.data import CorruptionType
 from tsadquality.reproducibility import ReproducibleOperations
 
@@ -54,7 +55,12 @@ def main() -> None:
 
     fig, axes = plt.subplots(2, 3, figsize=(12, 5.4), sharex=True)
     for ax, (title, corruption_type, settings) in zip(axes.ravel(), PANELS):
-        corruptor = corruption_type.get_class()(excerpt, value_col="Data", label_col="Label")
+        corruptor = corruption_type.get_class()(
+            excerpt,
+            value_col="Data",
+            label_col="Label",
+            corruption_target=str(CORRUPTION_TARGETS[corruption_type]),
+        )
         corruptor.inject(**settings)
         corrupted = corruptor.get_corrupted_df()["Data"].to_numpy(dtype=float)
 

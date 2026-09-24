@@ -25,6 +25,7 @@ Run with:
 from itertools import product
 from pathlib import Path
 
+from tsadquality.enums.corruption import CORRUPTION_TARGETS
 from tsadquality.enums.data import CorruptionType
 from tsadquality.reproducibility import ReproducibleOperations
 
@@ -95,7 +96,10 @@ def main() -> None:
                 df = pd.read_csv(_DATA_DIR / f"{dataset_name}.csv")
 
                 corruptor = corruption_type.get_class()(
-                    df, value_col=_VALUE_COL, label_col=_LABEL_COL
+                    df,
+                    value_col=_VALUE_COL,
+                    label_col=_LABEL_COL,
+                    corruption_target=str(CORRUPTION_TARGETS[corruption_type]),
                 )
                 corruptor.inject(**params)
                 corrupted_df = corruptor.get_corrupted_df()
